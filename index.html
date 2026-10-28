@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self'; connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://api.openai.com https://api.anthropic.com https://generativelanguage.googleapis.com https://api.mistral.ai https://openrouter.ai https://api.groq.com https://api.x.ai http://localhost:* http://127.0.0.1:*; img-src 'self' blob: data:; media-src 'self' blob:; font-src 'self'; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'; require-trusted-types-for 'script'; trusted-types verbatim"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>verbatim: transcribe and edit video in your browser</title>
+    <meta name="description" content="Transcribe video and audio on your device with Parakeet or Whisper, read along, correct, cut by words or plain-language instructions, and export TXT, SRT, VTT, Markdown or the edited video. Nothing is uploaded." />
+    <meta name="color-scheme" content="light dark" />
+    <link rel="canonical" href="https://maxgfr.github.io/verbatim/" />
+    <link rel="stylesheet" href="./src/styles.css" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>verbatim runs entirely in your browser and needs JavaScript and WebAssembly.</noscript>
+    <script type="module" src="./src/main.tsx"></script>
+  </body>
+</html>

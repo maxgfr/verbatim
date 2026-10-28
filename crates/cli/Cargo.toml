@@ -1,0 +1,28 @@
+[package]
+name = "verbatim-cli"
+description = "Transcribe and edit video and audio on your machine: Parakeet speech to text, cuts by time, words, fillers and silences, plain-language edits with AI"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "verbatim"
+path = "src/main.rs"
+
+[dependencies]
+verbatim-edl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+parakeet-rs = "0.4.3"
+reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
+sha2 = "0.11"
+hex = "0.4"
+indicatif = "0.18"
+
+[dev-dependencies]
+tempfile = "3"
