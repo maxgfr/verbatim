@@ -1,0 +1,8 @@
+# Accepted advisories, each with its reason. Review when the dependency changes.
+
+[[IgnoredVulns]]
+id = "RUSTSEC-2024-0436"
+# `paste` is unmaintained (an "unmaintained" notice, not a vulnerability, and no
+# fixed version exists). It is a compile-time proc-macro pulled in by
+# tokenizers, through parakeet-rs, and runs only while building the CLI.
+reason = "paste: unmaintained notice for a build-time proc-macro (tokenizers via parakeet-rs); no fix exists"
