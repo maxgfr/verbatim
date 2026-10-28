@@ -35,7 +35,7 @@ Exports: TXT (with or without times), SRT, VTT, Markdown, JSON, CSV, or all of t
 ## On the command line
 
 ```bash
-brew install maxgfr/tap/verbatim        # pulls ffmpeg
+brew install maxgfr/tap/verbatim        # pulls ffmpeg; macOS on Apple silicon, Linux x64 and arm64
 
 verbatim transcribe talk.mp4 -o talk.srt
 verbatim transcribe talk.mp4 -f txt,vtt,md,json -o out/
@@ -78,7 +78,7 @@ cargo run -p verbatim-cli -- --help
 | `src/` | The site (React 19, Bun build, no framework CSS); the speech models run in `src/worker.ts` |
 | `skills/verbatim` | The agent skill |
 
-Releases follow Conventional Commits: CI green on `main` → semantic-release tags and publishes, the CLI is built for macOS (arm64, x64) and Linux (x64, arm64), attested and attached, and the Homebrew tap updates from the release.
+Releases follow Conventional Commits: CI green on `main` → semantic-release tags and publishes, the CLI is built for macOS on Apple silicon and Linux (x64, arm64), attested and attached, and the Homebrew tap updates from the release.
 
 ## License
 
