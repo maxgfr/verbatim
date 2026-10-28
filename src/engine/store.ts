@@ -47,9 +47,10 @@ export async function loadDocs(): Promise<Doc[]> {
 
 export async function saveDoc(doc: Doc): Promise<void> {
   const next = { ...doc, updatedAt: Date.now() };
-  await tx("readwrite", (s) => s.put(next));
+  // Memory first, so an update made before the write lands builds on this one.
   docs = [next, ...docs.filter((d) => d.id !== doc.id)];
   emit();
+  await tx("readwrite", (s) => s.put(next));
 }
 
 export async function deleteDoc(id: string): Promise<void> {

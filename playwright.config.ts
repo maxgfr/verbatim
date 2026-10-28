@@ -8,7 +8,8 @@ export default defineConfig({
   testDir: "e2e",
   timeout: 120_000,
   fullyParallel: true,
-  workers: process.env.CI ? 2 : undefined,
+  // One browser at a time against a deployed site: parallel cold loads of GitHub Pages time out.
+  workers: remote ? 1 : process.env.CI ? 2 : undefined,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [["github"], ["list"]] : "list",
   use: { baseURL, acceptDownloads: true, trace: "retain-on-failure" },

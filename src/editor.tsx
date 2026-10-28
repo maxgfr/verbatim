@@ -168,14 +168,25 @@ export function Editor({ id }: { id: string }) {
     list.current?.querySelector(`[data-s="${playingSeg}"]`)?.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" });
   }, [playingSeg]);
 
+  // Both read the document's latest cuts, not this render's: two quick clicks must both count.
   const setCuts = useCallback(
     (ranges: Range[]) => {
-      history.current.push(cuts);
-      update((d) => ({ ...d, cuts: cutList(ranges, duration).delete }));
+      update((d) => {
+        history.current.push((d.cuts ?? []) as Range[]);
+        return { ...d, cuts: cutList(ranges, duration).delete };
+      });
     },
-    [cuts, duration, update],
+    [duration, update],
   );
-  const addCuts = useCallback((ranges: Range[]) => setCuts([...cuts, ...ranges]), [cuts, setCuts]);
+  const addCuts = useCallback(
+    (ranges: Range[]) => {
+      update((d) => {
+        history.current.push((d.cuts ?? []) as Range[]);
+        return { ...d, cuts: cutList([...((d.cuts ?? []) as Range[]), ...ranges], duration).delete };
+      });
+    },
+    [duration, update],
+  );
   const undo = history.current.length
     ? () => {
         const prev = history.current.pop() ?? [];
