@@ -70,11 +70,12 @@ export const languageName = (code: string) => LANG_NAMES[code] ?? new Intl.Displ
 async function ask(system: string, prompt: string, signal?: AbortSignal): Promise<string> {
   await loadLlm();
   const s = settings();
-  const messages = [{ role: "system" as const, content: system }, { role: "user" as const, content: prompt }];
+  // AI SDK 7 takes the system prompt as `instructions`, never as a message.
+  const messages = [{ role: "user" as const, content: prompt }];
   const problem = callProblem(s, { messages }, resolveCapabilities({ kind: providerKindOf(s), modelId: modelIdOf(s) }));
   if (problem) throw new Error(problem.message);
   try {
-    const res = await generateText({ model: await loadModel(s), messages, maxRetries: 1, abortSignal: signal });
+    const res = await generateText({ model: await loadModel(s), instructions: system, messages, maxRetries: 1, abortSignal: signal });
     return res.text;
   } catch (e) {
     throw new Error(describeError(e).message);
