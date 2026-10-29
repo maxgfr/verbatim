@@ -1000,6 +1000,18 @@ textarea:focus-visible {
   color: var(--ink-2);
 }
 
+.liner-notes strong {
+  color: var(--ink);
+  font-weight: 650;
+}
+
+.liner-notes code {
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  background: var(--paper-2);
+  padding-inline: 0.25em;
+}
+
 .sheet-tools {
   position: sticky;
   inset-block-start: 0;

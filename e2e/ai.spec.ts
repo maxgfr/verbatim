@@ -41,7 +41,7 @@ async function setUpAnthropic(page: Page) {
 
 test("summary through the AI SDK sends the instructions apart from the messages", async ({ page }) => {
   bodies.length = 0;
-  await page.route("https://api.anthropic.com/**", answer("A short French clip about software prices.\n- Two points are made."));
+  await page.route("https://api.anthropic.com/**", answer("A short French clip about software prices.\n- **Two points** are made, `lang` included."));
   await page.goto("./");
   const id = await seedDoc(page);
   await setUpAnthropic(page);
@@ -50,6 +50,10 @@ test("summary through the AI SDK sends the instructions apart from the messages"
   await expect(page.locator(".ai-panel")).toContainText("goes to Anthropic");
   await page.getByRole("button", { name: "Summarize" }).click();
   await expect(page.locator(".liner-notes")).toContainText("software prices");
+  // Markdown emphasis renders as elements, never as raw asterisks.
+  await expect(page.locator(".liner-notes strong")).toHaveText("Two points");
+  await expect(page.locator(".liner-notes code")).toHaveText("lang");
+  await expect(page.locator(".liner-notes")).not.toContainText("**");
   expect(bodies).toHaveLength(1);
   expect(JSON.stringify(bodies[0]!.system)).toContain("summarize transcripts");
   expect(bodies[0]!.messages.every((m) => m.role === "user")).toBe(true);

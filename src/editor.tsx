@@ -48,6 +48,19 @@ function at(pieces: TranscriptPiece[], t: number): number {
   return found >= 0 && t <= pieces[found]!.end + 0.25 ? found : -1;
 }
 
+/** A model's **bold** and `code` as elements, never as HTML: everything else stays text. */
+function inline(text: string): React.ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+      <strong key={i}>{part.slice(2, -2)}</strong>
+    ) : part.startsWith("`") && part.endsWith("`") && part.length > 2 ? (
+      <code key={i}>{part.slice(1, -1)}</code>
+    ) : (
+      part
+    ),
+  );
+}
+
 /** No space before closing punctuation or after an apostrophe, as joinWords does. */
 const glued = (word: string, prev: string) => /^[,.!?;:)…%]/.test(word) || /['’(]$/.test(prev);
 
@@ -334,7 +347,7 @@ export function Editor({ id }: { id: string }) {
           <div className="liner-notes">
             <h2>{t("Summary", "Résumé")}</h2>
             {doc.summary.split(/\n+/).map((p, i) => (
-              <p key={i}>{p.replace(/^[-*]\s*/, "– ")}</p>
+              <p key={i}>{inline(p.replace(/^\s*[-*]\s+/, "– "))}</p>
             ))}
           </div>
         ) : null}
