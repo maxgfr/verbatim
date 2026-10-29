@@ -222,6 +222,9 @@ export function Home() {
             <>
               <strong>{engineLabel(engine)}</strong> ·{" "}
               {cached.has(cacheKey) ? t("on this device", "sur cet appareil") : t(`${engineSize(engine)} MB to download once`, `${engineSize(engine)} Mo à télécharger une fois`)}
+              {engine.kind === "nemo" && engine.model === "parakeet" && language === "auto" ? (
+                <> · {t("Parakeet finds the language itself. If the text comes out in another language, choose the spoken language and start again.", "Parakeet trouve la langue tout seul. Si le texte sort dans une autre langue, choisissez la langue parlée et relancez.")}</>
+              ) : null}
               {problem === "whisper-auto" ? <> · {t(`Whisper does not detect the language: it will listen for ${languageLabel(navigator.language.slice(0, 2), lang)}.`, `Whisper ne détecte pas la langue : il écoutera du ${languageLabel(navigator.language.slice(0, 2), lang)}.`)}</> : null}
               {problem === "canary-language" ? <span className="warn"> · {t("Canary needs the spoken language: English, French, German or Spanish.", "Canary a besoin de la langue parlée : anglais, français, allemand ou espagnol.")}</span> : null}
             </>

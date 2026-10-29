@@ -1,5 +1,6 @@
-// Which speech model runs. "Auto" picks Parakeet when it knows the language
-// (or the language is left to it), Whisper otherwise; every choice shows its
+// Which speech model runs. "Auto" leaves detection to Parakeet, sends a named
+// English, French, German or Spanish to Canary (told the language), other
+// Parakeet languages to Parakeet, the rest to Whisper; every choice shows its
 // download before anything is fetched.
 
 import { NEMO_MODELS, nemoSupports } from "llm-connect/nemo";
@@ -18,7 +19,12 @@ export const LANGUAGES = ["auto", ...NEMO_MODELS.parakeet.languages] as const;
 export function resolveEngine(id: EngineId, language: string): Engine {
   switch (id) {
     case "auto":
-      return language === "auto" || nemoSupports("parakeet", language) ? { kind: "nemo", model: "parakeet" } : { kind: "whisper", preset: "balanced" };
+      // Parakeet finds the language itself but cannot be told it, and takes accented
+      // speech for English (a French talk came out as English). A language the user
+      // names goes to Canary, which is told it, when Canary knows it.
+      if (language === "auto") return { kind: "nemo", model: "parakeet" };
+      if (nemoSupports("canary", language)) return { kind: "nemo", model: "canary" };
+      return nemoSupports("parakeet", language) ? { kind: "nemo", model: "parakeet" } : { kind: "whisper", preset: "balanced" };
     case "parakeet":
     case "canary":
       return { kind: "nemo", model: id };
