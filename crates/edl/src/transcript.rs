@@ -149,6 +149,30 @@ pub fn segments_from_words(words: &[Piece], pause: f64, max_words: usize) -> Vec
     out
 }
 
+/// Each segment's time spread over its words, in proportion to their length:
+/// for models that time phrases, not words (Canary).
+pub fn words_from_segments(segments: &[Piece]) -> Vec<Piece> {
+    let mut out = Vec::new();
+    for s in segments {
+        let words: Vec<&str> = s.text.split_whitespace().collect();
+        let total: usize = words.iter().map(|w| w.chars().count()).sum();
+        if total == 0 {
+            continue;
+        }
+        let mut at = s.start;
+        for w in words {
+            let len = (s.end - s.start) * w.chars().count() as f64 / total as f64;
+            out.push(Piece {
+                text: w.to_string(),
+                start: at,
+                end: at + len,
+            });
+            at += len;
+        }
+    }
+    out
+}
+
 /// A time on the original timeline moved onto the edited one: earlier cuts
 /// pulled out, and a time inside a cut taken to where the cut was.
 fn shift(t: f64, delete: &[Range]) -> f64 {
@@ -340,6 +364,17 @@ mod tests {
                 w("Oui", 1.1, 1.3),
                 w("l'ami", 3.0, 3.4)
             ]
+        );
+    }
+
+    #[test]
+    fn spreads_segment_time_over_words() {
+        let words = words_from_segments(&[w("un deux", 0.0, 1.0), w("   ", 1.0, 2.0)]);
+        assert_eq!(words.len(), 2);
+        // "un" is a third of the letters, so a third of the time.
+        assert!(
+            (words[0].end - 1.0 / 3.0).abs() < 1e-9 && words[1].end == 1.0,
+            "{words:?}"
         );
     }
 

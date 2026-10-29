@@ -8,6 +8,7 @@
 mod ai;
 mod asr;
 mod media;
+mod mel;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
@@ -44,6 +45,8 @@ enum Command {
         /// Transcribe again even when a cached transcript exists.
         #[arg(long)]
         no_cache: bool,
+        #[command(flatten)]
+        speech: SpeechArgs,
     },
     /// Turn a transcript JSON (from `verbatim transcribe -f json` or the site) into another format.
     Export {
@@ -87,10 +90,13 @@ enum Command {
         #[arg(long)]
         json: bool,
     },
-    /// The Parakeet model: status, download, path, remove.
+    /// The speech models: status, download, path, remove.
     Model {
         #[arg(value_parser = ["status", "download", "path", "remove"], default_value = "status")]
         action: String,
+        /// Which model download, path and remove act on.
+        #[arg(long, value_enum, default_value = "parakeet")]
+        engine: ModelChoice,
     },
     /// Check ffmpeg, the model and the AI settings.
     Doctor,
@@ -135,6 +141,26 @@ struct EditArgs {
     /// Never call a model: fail when the instruction is not understood.
     #[arg(long)]
     no_ai: bool,
+    #[command(flatten)]
+    speech: SpeechArgs,
+}
+
+/// How a missing transcript is made.
+#[derive(Args, Clone, Default)]
+struct SpeechArgs {
+    /// The spoken language (en, fr, de, es…). Parakeet guesses it, and can take accented speech for
+    /// English; a language Canary knows (en, fr, de, es) is transcribed by Canary, told the language.
+    #[arg(long, short = 'l', env = "VERBATIM_LANG")]
+    lang: Option<String>,
+    /// auto: Parakeet, or Canary when --lang names one of its languages.
+    #[arg(long, value_enum, default_value = "auto")]
+    engine: asr::EngineChoice,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum ModelChoice {
+    Parakeet,
+    Canary,
 }
 
 fn note(quiet: bool, msg: impl AsRef<str>) {
@@ -168,20 +194,26 @@ fn transcript_for(
     media: &Path,
     given: Option<&Path>,
     no_cache: bool,
+    speech: &SpeechArgs,
     quiet: bool,
 ) -> Result<Transcript> {
     if let Some(p) = given {
         return Ok(read_transcript(p)?.transcript);
     }
-    let cache = asr::cache_path(media)?;
+    let engine = asr::Engine::resolve(speech.engine, speech.lang.as_deref())?;
+    let cache = asr::cache_path(media, &engine)?;
     if !no_cache && let Ok(text) = std::fs::read_to_string(&cache) {
         return Ok(serde_json::from_str(&text)?);
     }
     note(
         quiet,
-        format!("Transcribing {} with Parakeet…", media.display()),
+        format!(
+            "Transcribing {} with {}…",
+            media.display(),
+            engine.spec().label
+        ),
     );
-    let mut t = asr::transcribe(media::decode(media)?, quiet)?;
+    let mut t = asr::transcribe(media::decode(media)?, &engine, quiet)?;
     // The container's length, not the audio's: a video may run past its sound.
     if let Ok(p) = media::probe(media) {
         t.duration = Some(t.duration.unwrap_or(0.0).max(p.duration));
@@ -196,7 +228,13 @@ fn doc_for(media: &Path, transcript: Transcript) -> ExportDoc {
         name: media
             .file_name()
             .map_or_else(String::new, |s| s.to_string_lossy().into_owned()),
-        engine: "Parakeet TDT 0.6B v3".into(),
+        // Canary reports the language it was told; Parakeet reports none.
+        engine: if transcript.language.is_some() {
+            asr::CANARY.label
+        } else {
+            asr::PARAKEET.label
+        }
+        .into(),
         transcript,
         summary: None,
         chapters: vec![],
@@ -308,7 +346,7 @@ fn plan(media: &Path, a: &EditArgs, duration: f64, quiet: bool) -> Result<Planne
                 );
             }
             let model = ai::Ai::from_env(a.ai, a.ai_model.clone())?;
-            let t = transcript_for(media, a.transcript.as_deref(), false, quiet)?;
+            let t = transcript_for(media, a.transcript.as_deref(), false, &a.speech, quiet)?;
             note(
                 quiet,
                 format!("Asking {} to read the instruction…", model.model),
@@ -330,7 +368,7 @@ fn plan(media: &Path, a: &EditArgs, duration: f64, quiet: bool) -> Result<Planne
     {
         let t = match transcript.take() {
             Some(t) => t,
-            None => transcript_for(media, a.transcript.as_deref(), false, quiet)?,
+            None => transcript_for(media, a.transcript.as_deref(), false, &a.speech, quiet)?,
         };
         if fillers {
             ranges.extend(verbatim_edl::fillers(&t.words));
@@ -418,9 +456,10 @@ fn run(cli: Cli) -> Result<()> {
             format,
             output,
             no_cache,
+            speech,
         } => {
             let formats = formats(&format, output.as_deref())?;
-            let t = transcript_for(&media, None, no_cache, quiet)?;
+            let t = transcript_for(&media, None, no_cache, &speech, quiet)?;
             let stem = media
                 .file_stem()
                 .map_or_else(|| "transcript".into(), |s| s.to_string_lossy().into_owned());
@@ -499,7 +538,13 @@ fn run(cli: Cli) -> Result<()> {
             if subtitles {
                 let t = match p.transcript {
                     Some(ref t) => t.clone(),
-                    None => transcript_for(&media, edit.transcript.as_deref(), false, quiet)?,
+                    None => transcript_for(
+                        &media,
+                        edit.transcript.as_deref(),
+                        false,
+                        &edit.speech,
+                        quiet,
+                    )?,
                 };
                 let doc = doc_for(&output, verbatim_edl::remap(&t, &p.cuts.delete));
                 let srt = output.with_extension("srt");
@@ -513,28 +558,33 @@ fn run(cli: Cli) -> Result<()> {
             }
             Ok(())
         }
-        Command::Model { action } => {
+        Command::Model { action, engine } => {
+            let spec = match engine {
+                ModelChoice::Parakeet => &asr::PARAKEET,
+                ModelChoice::Canary => &asr::CANARY,
+            };
             match action.as_str() {
-                "download" => {
-                    asr::ensure_model(quiet)?;
-                    println!("{}", asr::model_dir().display());
-                }
-                "path" => println!("{}", asr::model_dir().display()),
+                "download" => println!("{}", spec.ensure(quiet)?.display()),
+                "path" => println!("{}", spec.dir().display()),
                 "remove" => {
-                    asr::remove_model()?;
+                    spec.remove()?;
                     note(quiet, "Removed.");
                 }
-                _ => println!(
-                    "{} {} ({} MB) at {}",
-                    asr::MODEL_NAME,
-                    if asr::model_present() {
-                        "ready"
-                    } else {
-                        "not downloaded"
-                    },
-                    asr::model_size() / 1_000_000,
-                    asr::model_dir().display()
-                ),
+                _ => {
+                    for m in [&asr::PARAKEET, &asr::CANARY] {
+                        println!(
+                            "{:<22} {:<15} {:>4} MB  {}",
+                            m.label,
+                            if m.present() {
+                                "ready"
+                            } else {
+                                "not downloaded"
+                            },
+                            m.size() / 1_000_000,
+                            m.dir().display()
+                        );
+                    }
+                }
             }
             Ok(())
         }
@@ -542,15 +592,24 @@ fn run(cli: Cli) -> Result<()> {
             let ok = |b: bool| if b { "ok" } else { "missing" };
             println!("ffmpeg   {}", ok(media::which("ffmpeg").is_some()));
             println!("ffprobe  {}", ok(media::which("ffprobe").is_some()));
-            println!(
-                "model    {} ({})",
-                if asr::model_present() {
-                    "ready"
-                } else {
-                    "not downloaded: `verbatim model download`"
-                },
-                asr::model_dir().display()
-            );
+            for (name, m, hint) in [
+                ("parakeet", &asr::PARAKEET, "verbatim model download"),
+                (
+                    "canary",
+                    &asr::CANARY,
+                    "verbatim model download --engine canary (for --lang en/fr/de/es)",
+                ),
+            ] {
+                println!(
+                    "{name:<8} {} ({})",
+                    if m.present() {
+                        "ready".to_string()
+                    } else {
+                        format!("not downloaded: `{hint}`")
+                    },
+                    m.dir().display()
+                );
+            }
             let ai = ai::Ai::from_env(None, None);
             println!(
                 "ai       {}",

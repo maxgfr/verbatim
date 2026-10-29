@@ -18,7 +18,7 @@ Transcription services want your recording on their servers, and editing a talk 
 
 ## In the browser
 
-1. Drop a video or audio file. The page says which model will run and what it downloads, once (Parakeet TDT 0.6B v3, about 670 MB; Whisper from 80 MB).
+1. Drop a video or audio file. The page says which model will run and what it downloads, once (Parakeet TDT 0.6B v3, about 670 MB; Canary 215 MB; Whisper from 80 MB). Name the spoken language when you know it: English, French, German and Spanish then go to Canary, which is told the language, where Parakeet would guess it.
 2. The transcript opens next to the media. The playing word is underlined; click any word to hear it. Correct a segment in place.
 3. Cut: select words and press Delete, use a segment's scissors, remove hesitations or long pauses, or say it: “supprime de 15:39 à 15:43 et les 5:42 dernières minutes”. Times are read on the spot; anything else goes to your own AI model, whose plan is shown before it applies.
 4. Play without the cuts, then export the edited file (MP4 or M4A, rendered with WebCodecs in the page), its subtitles, or the cut list and the matching `verbatim cut` command.
@@ -39,13 +39,14 @@ brew install maxgfr/tap/verbatim        # pulls ffmpeg; macOS on Apple silicon, 
 
 verbatim transcribe talk.mp4 -o talk.srt
 verbatim transcribe talk.mp4 -f txt,vtt,md,json -o out/
+verbatim transcribe talk.mp4 --lang fr -o talk.srt   # name the language: Canary is told it
 verbatim cut talk.mp4 "supprime de 15:39 à 15:43 et les 5:42 dernières minutes" -o short.mp4 --dry-run
 verbatim cut talk.mp4 --delete 15:39-15:43 --delete "last 5:42" --fillers --silences 1.5 -o short.mp4 --subtitles
 verbatim plan talk.mp4 --fillers -o cuts.json && verbatim cut talk.mp4 --cuts cuts.json -o clean.mp4 --json
 verbatim export talk.json -f vtt          # a transcript from the site or the CLI
 ```
 
-The CLI runs the same Parakeet export as the site through ONNX Runtime (downloaded once, pinned by revision and SHA-256), cuts with ffmpeg (exact re-encode, or `--fast` stream copy), and reads time phrases with the same Rust engine the site loads as WebAssembly. Instructions that need a model use `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (with `--ai-model`) or `--ai ollama`; the plan is shown and confirmed before any file is written. `verbatim --help` for everything.
+The CLI runs the same Parakeet and Canary exports as the site through ONNX Runtime (downloaded once, pinned by revision and SHA-256; `--lang en|fr|de|es` uses Canary, told the language, since Parakeet can mistake accented speech for English), cuts with ffmpeg (exact re-encode, or `--fast` stream copy), and reads time phrases with the same Rust engine the site loads as WebAssembly. Instructions that need a model use `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (with `--ai-model`) or `--ai ollama`; the plan is shown and confirmed before any file is written. `verbatim --help` for everything.
 
 ### Agent skill
 

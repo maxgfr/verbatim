@@ -19,6 +19,7 @@ pub use ranges::{Range, complement, keeps, merge, resolve, total};
 pub use time::{format_clock, parse_duration, parse_time};
 pub use transcript::{
     Piece, Transcript, fillers, find_text, join_words, remap, segments_from_words, silences,
+    words_from_segments,
 };
 
 use serde::{Deserialize, Serialize};

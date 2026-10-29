@@ -55,6 +55,29 @@ fn version_and_skill() {
 }
 
 #[test]
+fn engine_choice_is_checked_before_any_download() {
+    let canary = |extra: &[&str]| {
+        bin()
+            .args(["transcribe", "-q", "--engine", "canary"])
+            .args(extra)
+            .arg(fixture())
+            .output()
+            .unwrap()
+    };
+    let out = canary(&[]);
+    assert_eq!(out.status.code(), Some(1));
+    assert!(String::from_utf8_lossy(&out.stderr).contains("Canary needs the spoken language"));
+    let out = canary(&["--lang", "it"]);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("not \"it\""));
+    let status =
+        String::from_utf8(bin().args(["model", "status"]).output().unwrap().stdout).unwrap();
+    assert!(
+        status.contains("Parakeet TDT 0.6B v3") && status.contains("Canary 180M Flash"),
+        "{status}"
+    );
+}
+
+#[test]
 fn plans_a_french_instruction_without_a_model() {
     if !has_ffmpeg() {
         return;

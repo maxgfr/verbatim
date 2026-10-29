@@ -10,7 +10,8 @@ description: Transcribe and edit video or audio on the user's machine with the `
 environment. `verbatim --help` and `verbatim <command> --help` are the reference for flags.
 
 Install: `brew install maxgfr/tap/verbatim` (pulls ffmpeg). Check the setup with `verbatim doctor`.
-The first transcription downloads Parakeet once (~670 MB, `verbatim model download` to do it ahead).
+The first transcription downloads its model once: Parakeet (~670 MB) by default, Canary (~213 MB) for
+`--lang en|fr|de|es` (`verbatim model download [--engine canary]` to do it ahead).
 
 ## Transcribe
 
@@ -18,12 +19,19 @@ The first transcription downloads Parakeet once (~670 MB, `verbatim model downlo
 verbatim transcribe talk.mp4                         # plain text on stdout
 verbatim transcribe talk.mp4 -o talk.srt             # format from the extension
 verbatim transcribe talk.mp4 -f srt,vtt,md,json -o out/
+verbatim transcribe talk.mp4 --lang fr -o talk.srt   # French: told to the model, never guessed
 verbatim export talk.json -f vtt -o talk.vtt         # a transcript JSON (CLI's or the site's) to another format
 ```
 
-Transcripts are cached per file: later `plan`/`cut` runs on the same file reuse them.
-Parakeet finds the language itself (25 European languages). It keeps hesitations, which is what lets
-`--fillers` remove them.
+Transcripts are cached per file and language: later `plan`/`cut` runs on the same file reuse them.
+
+**Name the spoken language when you know it** (`--lang fr`, also on `plan` and `cut`). Without it,
+Parakeet guesses among 25 European languages, and it can take accented or mixed speech for English: a
+French talk full of English terms came out as broken English. With `--lang en|fr|de|es`, Canary
+transcribes instead, told the language (213 MB, downloaded once; `verbatim model download --engine
+canary` to fetch it ahead). Other languages stay with Parakeet. If a transcript comes out in the wrong
+language, run it again with `--lang` and `--no-cache`. Both models keep hesitations, which is what lets
+`--fillers` remove them; Canary times phrases, so word times inside a phrase are estimated.
 
 ## Edit: plan, check, apply
 
@@ -50,7 +58,7 @@ Ways to say what goes:
 | A saved plan | `--cuts cuts.json` (from `verbatim plan … -o cuts.json` or the site's export) |
 
 Times like `15:39` are minutes:seconds; `1:02:03` is hours:minutes:seconds; bare numbers are seconds.
-Flags and an instruction combine: `verbatim cut talk.mp4 "les 30 premières secondes" --fillers -o out.mp4`.
+Flags and an instruction combine: `verbatim cut talk.mp4 "les 30 premières secondes" --fillers --lang fr -o out.mp4`.
 
 Instructions made only of times are read without a model. Anything else ("cut the part about pricing",
 "remove the intro") needs one: `ANTHROPIC_API_KEY` (default model claude-sonnet-5-5), or
