@@ -60,10 +60,21 @@ Ways to say what goes:
 Times like `15:39` are minutes:seconds; `1:02:03` is hours:minutes:seconds; bare numbers are seconds.
 Flags and an instruction combine: `verbatim cut talk.mp4 "les 30 premières secondes" --fillers --lang fr -o out.mp4`.
 
-Instructions made only of times are read without a model. Anything else ("cut the part about pricing",
-"remove the intro") needs one: `ANTHROPIC_API_KEY` (default model claude-sonnet-5-5), or
-`OPENAI_API_KEY` with `--ai-model`, or Ollama with `--ai ollama --ai-model <model>`. `--no-ai` refuses
-instead of calling one. When no key is set, say so and offer times or `--phrase` instead of guessing.
+Instructions made only of times are read without a model. An instruction about content ("cut the part
+about pricing", "remove the intro", "garde seulement la démo") needs someone to read the transcript, and
+**you are that reader**: do not ask for an API key and do not fall back to asking for times.
+
+1. Transcribe to JSON (cached, so free the second time): `verbatim transcribe talk.mp4 --lang fr -f json -o talk.json`.
+2. Read `transcript.segments` (`text`, `start`, `end` in seconds) and find the passages the user means.
+   Cut whole segments, from the first one's `start` to the last one's `end`; for a word or a phrase said
+   several times, prefer `--phrase "…"`.
+3. Show the plan with `--dry-run` and the passages' text, then apply:
+   `verbatim cut talk.mp4 --delete 2:02-2:31 --delete 30:05.5-30:12 --lang fr -o short.mp4`.
+   Mix with times and flags freely (`--fillers`, `--silences 1.5`, `"les 5:42 dernières minutes"`).
+
+The CLI can also ask a model itself (the instruction as an argument, with `ANTHROPIC_API_KEY`, or
+`OPENAI_API_KEY` and `--ai-model`, or `--ai ollama --ai-model <model>`): useful in scripts, where no agent
+reads the transcript. `--no-ai` makes it refuse instead.
 
 Output: `.mp4`/`.mov`/`.mkv` re-encode exactly at the cut (H.264/AAC); `--fast` copies streams and snaps
 each cut to the previous keyframe (seconds off, much faster). `.m4a`/`.mp3`/`.wav` write audio only.

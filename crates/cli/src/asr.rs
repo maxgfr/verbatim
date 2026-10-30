@@ -439,7 +439,10 @@ impl Canary {
         let mut mems: DynValue =
             Tensor::from_array(([6usize, 1, 0, 1024], Vec::<f32>::new()))?.into_dyn();
         let mut first = true;
-        while tokens.len() < 512 {
+        // Speech runs at a few tokens a second: a phrase past that budget is a decoding loop.
+        let seconds = samples.len() as f64 / f64::from(SAMPLE_RATE);
+        let budget = prompt + ((seconds * 12.0) as usize + 16).min(512 - prompt);
+        while tokens.len() < budget {
             let ids: Vec<i64> = if first {
                 tokens.clone()
             } else {
@@ -466,6 +469,10 @@ impl Canary {
                 break;
             }
             tokens.push(next);
+            if let Some(keep) = repeating_tail(&tokens[prompt..]) {
+                tokens.truncate(prompt + keep);
+                break;
+            }
         }
         Ok(tokens[prompt..]
             .iter()
@@ -475,6 +482,29 @@ impl Canary {
             .trim()
             .to_string())
     }
+}
+
+/// Greedy decoding can fall into a loop ("euh, euh, euh…" seventy times): when
+/// the tail is one short pattern repeated more than `MAX_REPEATS` times, the
+/// length to keep, the tokens before the loop and one occurrence of it.
+const MAX_REPEATS: usize = 4;
+fn repeating_tail(tokens: &[i64]) -> Option<usize> {
+    for period in 1..=4 {
+        let need = period * (MAX_REPEATS + 1);
+        if tokens.len() < need {
+            continue;
+        }
+        let tail = &tokens[tokens.len() - need..];
+        if tail.chunks(period).all(|c| c == &tail[..period]) {
+            // Walk back to where the loop started.
+            let mut start = tokens.len() - need;
+            while start >= period && tokens[start - period..start] == tail[..period] {
+                start -= period;
+            }
+            return Some(start + period);
+        }
+    }
+    None
 }
 
 fn canary(samples: &[f32], language: &str, quiet: bool) -> Result<Transcript> {
@@ -591,6 +621,20 @@ mod tests {
             Engine::resolve(Auto, Some("fr")).unwrap().key(),
             Engine::resolve(Auto, Some("de")).unwrap().key()
         );
+    }
+
+    #[test]
+    fn decoding_loops_are_cut_to_one_occurrence() {
+        // "a b" then "x ," repeated: keep "a b x ,".
+        let mut t = vec![1, 2];
+        for _ in 0..6 {
+            t.extend([7, 8]);
+        }
+        assert_eq!(repeating_tail(&t), Some(4));
+        assert_eq!(repeating_tail(&[5; 5]), Some(1));
+        // Four repeats are speech ("non non non non"), not a loop.
+        assert_eq!(repeating_tail(&[1, 5, 5, 5, 5]), None);
+        assert_eq!(repeating_tail(&[1, 2, 3, 4, 5, 6]), None);
     }
 
     #[test]
