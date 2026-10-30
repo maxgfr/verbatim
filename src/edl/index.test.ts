@@ -1,5 +1,5 @@
 import { beforeAll, expect, test } from "bun:test";
-import { cliArgs, keeps, loadEdl, parseInstruction, parsePlan, planPrompt, remap, render, resolve } from "./index.ts";
+import { cliArgs, keeps, loadEdl, parsePlan, planPrompt, remap, render, resolve } from "./index.ts";
 
 beforeAll(async () => {
   await loadEdl(await Bun.file(new URL("./pkg/edl_bg.wasm", import.meta.url)).arrayBuffer());
@@ -16,10 +16,14 @@ const transcript = {
   wordTimings: "exact" as const,
 };
 
-test("the page reads instructions with the CLI's engine", () => {
-  const p = parseInstruction("je veux supprimer de 15:39 à 15:43 et les 5:42 dernières minutes");
-  expect(p.unparsed).toEqual([]);
-  const cuts = resolve(p.edits, 3600);
+test("edits resolve with the CLI's engine and leave as its options", () => {
+  const cuts = resolve(
+    [
+      { op: "delete", span: "between", start: 939, end: 943 },
+      { op: "delete", span: "last", seconds: 342 },
+    ],
+    3600,
+  );
   expect(cuts.delete).toEqual([
     [939, 943],
     [3258, 3600],

@@ -37,7 +37,7 @@ fn no_timings() -> String {
 
 /// Hesitations, in the languages the models hear most. Matched on the whole
 /// word, case and punctuation aside.
-const FILLERS: &[&str] = &[
+pub const DEFAULT_FILLERS: &[&str] = &[
     // French
     "euh", "euhh", "heu", "heuu", "hum", "hmm", "hm", "bah", "beh", "mmh", "mh", "eh",
     // English
@@ -53,10 +53,20 @@ fn bare(word: &str) -> String {
 
 /// The filler words, each as its own range.
 pub fn fillers(words: &[Piece]) -> Vec<Range> {
+    fillers_in(words, DEFAULT_FILLERS)
+}
+
+/// The words of `list` (a filler list for any language), each as its own range.
+pub fn fillers_in<S: AsRef<str>>(words: &[Piece], list: &[S]) -> Vec<Range> {
+    let list: Vec<String> = list
+        .iter()
+        .map(|w| bare(w.as_ref()))
+        .filter(|w| !w.is_empty())
+        .collect();
     merge(
         words
             .iter()
-            .filter(|w| FILLERS.contains(&bare(&w.text).as_str()))
+            .filter(|w| list.contains(&bare(&w.text)))
             .map(|w| Range::new(w.start, w.end))
             .collect(),
     )
@@ -276,6 +286,16 @@ mod tests {
             fillers(&words),
             vec![Range::new(0.6, 0.9), Range::new(1.2, 1.4)]
         );
+    }
+
+    #[test]
+    fn fillers_in_any_language() {
+        let words = [w("ähm", 0.0, 0.3), w("also", 0.4, 0.8), w("ēto", 1.0, 1.3)];
+        assert_eq!(
+            fillers_in(&words, &["ēto", "ÄHM"]),
+            vec![Range::new(0.0, 0.3), Range::new(1.0, 1.3)]
+        );
+        assert!(fillers_in(&words, &[""; 0]).is_empty());
     }
 
     #[test]

@@ -12,12 +12,6 @@ fn to<T: serde::Serialize>(value: &T) -> String {
     serde_json::to_string(value).expect("plain data serializes")
 }
 
-/// An instruction in plain French or English → `{ edits, unparsed }`.
-#[wasm_bindgen(js_name = parseInstruction)]
-pub fn parse_instruction(text: &str) -> String {
-    to(&verbatim_edl::parse_instruction(text))
-}
-
 /// Edits (`[{ op, span, … }]`) → the cut list for this duration.
 #[wasm_bindgen(js_name = resolve)]
 pub fn resolve(edits: &str, duration: f64) -> Result<String, JsError> {

@@ -1,14 +1,13 @@
-//! Times as people write them: `15:39`, `1:02:03.5`, `90`, `5min`, `1h02`,
-//! `2 min 30 s`. A colon time is minutes:seconds (or hours:minutes:seconds),
+//! Times as options take them: `15:39`, `1:02:03.5`, `90`, `5min`, `1h02`. A colon time is minutes:seconds (or hours:minutes:seconds),
 //! never hours:minutes: in a video, `15:39` is a quarter past fifteen minutes.
 
-/// Seconds per unit word, accents already removed and lowercased.
+/// Seconds per unit abbreviation (`90s`, `5min`, `1h02`, `250ms`).
 pub(crate) fn unit(word: &str) -> Option<f64> {
     Some(match word {
         "ms" => 0.001,
-        "s" | "sec" | "secs" | "seconde" | "secondes" | "second" | "seconds" => 1.0,
-        "m" | "mn" | "min" | "mins" | "minute" | "minutes" => 60.0,
-        "h" | "hr" | "hrs" | "heure" | "heures" | "hour" | "hours" => 3600.0,
+        "s" | "sec" => 1.0,
+        "m" | "min" => 60.0,
+        "h" => 3600.0,
         _ => return None,
     })
 }

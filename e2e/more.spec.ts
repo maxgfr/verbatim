@@ -61,11 +61,11 @@ test("a cut list leaves and comes back, in the CLI's format", async ({ page }) =
   await w.assertClean();
 });
 
-test("an instruction that needs a model says so when none is set up", async ({ page }) => {
+test("saying what to cut asks for an AI provider when none is set up", async ({ page }) => {
   await openSeeded(page);
   await page.getByLabel("Say what to cut").fill("enlève le passage sur le prix");
   await page.getByRole("button", { name: "Plan" }).click();
-  await expect(page.locator(".montage [role=status]")).toContainText(/Not understood without a model: .*prix/);
+  await expect(page.locator(".montage [role=status]")).toContainText("needs an AI provider");
   await expect(page.locator(".proposal")).toHaveCount(0);
 });
 

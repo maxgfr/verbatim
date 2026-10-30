@@ -1,25 +1,26 @@
 //! Cut lists for verbatim, shared by the CLI and the site (through `verbatim-wasm`).
 //!
-//! An edit is what someone asked for ("delete 15:39–15:43", "keep the first
-//! ten minutes", "the last 5:42"); resolving the edits against the media's
-//! duration gives the ranges to delete, sorted and merged. Everything here is
-//! pure: no I/O, no clock, no randomness.
+//! An edit is a span to delete or keep (15:39–15:43, the first ten minutes,
+//! the last 5:42); resolving the edits against the media's duration gives the
+//! ranges to delete, sorted and merged. Nothing here reads natural language:
+//! the agent does, and hands over option values (`spec`). Everything is pure:
+//! no I/O, no clock, no randomness.
 
 mod export;
-mod phrase;
 mod plan;
 mod ranges;
+mod spec;
 mod time;
 mod transcript;
 
 pub use export::{Chapter, ExportDoc, Format, render};
-pub use phrase::{Parsed, parse_instruction};
 pub use plan::{PLAN_SYSTEM, Plan, parse_plan, plan_prompt};
 pub use ranges::{Range, complement, keeps, merge, resolve, total};
+pub use spec::{parse_range, parse_seconds};
 pub use time::{format_clock, parse_duration, parse_time};
 pub use transcript::{
-    Piece, Transcript, fillers, find_text, join_words, remap, segments_from_words, silences,
-    words_from_segments,
+    DEFAULT_FILLERS, Piece, Transcript, fillers, fillers_in, find_text, join_words, remap,
+    segments_from_words, silences, words_from_segments,
 };
 
 use serde::{Deserialize, Serialize};

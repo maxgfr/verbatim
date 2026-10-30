@@ -1,11 +1,15 @@
 //! verbatim: transcribe and edit video and audio on this machine.
 //!
-//! transcribe  speech to text with Parakeet, every export format
-//! plan        an edit as a cut list (JSON), without touching the media
-//! cut / edit  write the media without the cut parts
+//! info        what a media file holds (JSON)
+//! transcribe  speech to text with Parakeet or Canary, every export format
+//! segments    the transcript as numbered, timed segments (to choose cuts from)
+//! plan        the cuts as a cut list (JSON), without touching the media
+//! cut         write the media without the cut parts
 //! export      a transcript (the CLI's or the site's JSON) to another format
+//!
+//! The CLI reads no natural language: an agent (see `verbatim skill`) turns
+//! what someone asks, in any language, into these options.
 
-mod ai;
 mod asr;
 mod media;
 mod mel;
@@ -13,10 +17,10 @@ mod mel;
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
 use serde_json::json;
-use std::io::{IsTerminal, Write};
 use std::path::{Path, PathBuf};
 use verbatim_edl::{
-    CutList, Edit, ExportDoc, Format, Range, Transcript, format_clock, parse_instruction, resolve,
+    CutList, Edit, ExportDoc, Format, Piece, Range, Span, Transcript, format_clock, parse_range,
+    parse_seconds, resolve,
 };
 
 const SKILL: &str = include_str!("../../../skills/verbatim/SKILL.md");
@@ -33,18 +37,44 @@ struct Cli {
 
 #[derive(Subcommand)]
 enum Command {
-    /// Transcribe a video or audio file with Parakeet (25 languages, timed to the word).
+    /// What a media file holds: duration, streams, codecs, size (JSON).
+    Info { media: PathBuf },
+    /// Transcribe a video or audio file (Parakeet, or Canary with --lang en|fr|de|es).
     Transcribe {
         media: PathBuf,
-        /// txt, txt-timed, srt, vtt, md, json, csv; repeat for several. Default: from -o's extension, else txt.
+        /// txt, txt-timed, srt, vtt, md, json, csv; comma-separated or repeated. Default: from -o's extension, else txt.
         #[arg(long, short)]
         format: Vec<String>,
-        /// A file, or a directory for several formats. Default: the first format on stdout.
+        /// A file, or a directory for several formats. Default: stdout.
         #[arg(long, short)]
         output: Option<PathBuf>,
         /// Transcribe again even when a cached transcript exists.
         #[arg(long)]
         no_cache: bool,
+        #[command(flatten)]
+        speech: SpeechArgs,
+    },
+    /// The transcript as numbered, timed segments: the numbers --segments takes.
+    Segments {
+        media: PathBuf,
+        /// Only segments containing this text (case aside). Repeatable: any of them.
+        #[arg(long, short)]
+        grep: Vec<String>,
+        /// Only segments starting at or after this time.
+        #[arg(long)]
+        from: Option<String>,
+        /// Only segments starting before this time.
+        #[arg(long)]
+        to: Option<String>,
+        /// Words with their times instead of segments.
+        #[arg(long)]
+        words: bool,
+        /// JSON lines: {"n", "start", "end", "text"}.
+        #[arg(long)]
+        json: bool,
+        /// Use this transcript instead of the cached one or a new one.
+        #[arg(long)]
+        transcript: Option<PathBuf>,
         #[command(flatten)]
         speech: SpeechArgs,
     },
@@ -56,7 +86,7 @@ enum Command {
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
-    /// Work out the cuts and print them as a cut list, without writing any media.
+    /// Work out the cuts and print them as a cut list (JSON), without writing any media.
     Plan {
         media: PathBuf,
         #[command(flatten)]
@@ -65,7 +95,7 @@ enum Command {
         #[arg(long, short)]
         output: Option<PathBuf>,
     },
-    /// Write the media without the cut parts.
+    /// Write the media without the cut parts. The source is never modified.
     #[command(visible_alias = "edit")]
     Cut {
         media: PathBuf,
@@ -74,16 +104,15 @@ enum Command {
         /// The edited media; its extension picks the container (.mp4, .mov, .mkv, .m4a, .mp3, .wav…).
         #[arg(long, short)]
         output: PathBuf,
-        /// Copy the streams instead of re-encoding: much faster, cuts snap to keyframes.
+        /// Copy the streams instead of re-encoding: much faster, each cut snaps to the keyframe before it.
         #[arg(long)]
         fast: bool,
-        /// Also write the transcript of the result as subtitles next to it (.srt).
+        #[command(flatten)]
+        encode: EncodeArgs,
+        /// Also write the result's transcript as subtitles next to it (.srt).
         #[arg(long)]
         subtitles: bool,
-        /// Apply a plan that came from a model without asking.
-        #[arg(long, short)]
-        yes: bool,
-        /// Show the plan and stop.
+        /// Show the cuts and stop.
         #[arg(long)]
         dry_run: bool,
         /// Print the result as JSON.
@@ -98,49 +127,74 @@ enum Command {
         #[arg(long, value_enum, default_value = "parakeet")]
         engine: ModelChoice,
     },
-    /// Check ffmpeg, the model and the AI settings.
+    /// Check ffmpeg and the speech models.
     Doctor,
     /// Print the agent skill (SKILL.md) that matches this version.
     Skill,
 }
 
+/// What to cut. Every option is repeatable or combinable; the cuts add up.
 #[derive(Args, Clone, Default)]
 struct EditArgs {
-    /// The edit in plain French or English: "supprime de 15:39 à 15:43 et les 5:42 dernières minutes".
-    instruction: Option<String>,
-    /// A range to delete: 15:39-15:43, "last 5:42", "first 30", 12:00-end, start-0:30. Repeatable.
-    #[arg(long, short)]
+    /// A range to delete: START-END in times (15:39-15:43, 939-943, 1:02:03.5-1:05:00, start-0:30, 12:00-end).
+    #[arg(long, short, value_name = "RANGE")]
     delete: Vec<String>,
-    /// A range to keep; everything outside the kept ranges is deleted. Repeatable.
-    #[arg(long, short)]
+    /// A range to keep; everything outside the kept ranges is deleted.
+    #[arg(long, short, value_name = "RANGE")]
     keep: Vec<String>,
-    /// A cut list from `verbatim plan` or the site.
-    #[arg(long)]
-    cuts: Option<PathBuf>,
-    /// Delete hesitations (euh, um, uh…). Needs a transcript (made if missing).
+    /// Delete the first DURATION (30, 0:30, 90s, 5min).
+    #[arg(long, value_name = "DURATION")]
+    delete_first: Option<String>,
+    /// Delete the last DURATION (5:42 = the last five minutes forty-two).
+    #[arg(long, value_name = "DURATION")]
+    delete_last: Option<String>,
+    /// Keep only the first DURATION.
+    #[arg(long, value_name = "DURATION")]
+    keep_first: Option<String>,
+    /// Keep only the last DURATION.
+    #[arg(long, value_name = "DURATION")]
+    keep_last: Option<String>,
+    /// Delete transcript segments by number, as `verbatim segments` shows them: 12,15-18.
+    #[arg(long, value_name = "LIST")]
+    segments: Vec<String>,
+    /// Keep only these transcript segments.
+    #[arg(long, value_name = "LIST")]
+    keep_segments: Vec<String>,
+    /// Delete every place these words are said (whole words, case and punctuation aside).
+    #[arg(long, value_name = "TEXT")]
+    phrase: Vec<String>,
+    /// Delete hesitations: the built-in list (euh, um, uh, äh, ehm…) or --filler-words.
     #[arg(long)]
     fillers: bool,
-    /// Delete every pause of at least this many seconds.
+    /// The hesitations of the spoken language, comma-separated (replaces the built-in list; implies --fillers).
+    #[arg(long, value_name = "WORDS")]
+    filler_words: Option<String>,
+    /// Delete every pause of at least SECONDS.
     #[arg(long, value_name = "SECONDS")]
     silences: Option<f64>,
     /// Seconds of each pause kept on both sides.
-    #[arg(long, default_value_t = 0.15)]
+    #[arg(long, default_value_t = 0.15, value_name = "SECONDS")]
     pad: f64,
-    /// Delete every place these words are said. Repeatable.
-    #[arg(long)]
-    phrase: Vec<String>,
+    /// A cut list from `verbatim plan` or the site. Repeatable.
+    #[arg(long, value_name = "FILE")]
+    cuts: Vec<PathBuf>,
+    /// Grow every cut by SECONDS on both sides (negative shrinks it).
+    #[arg(
+        long,
+        default_value_t = 0.0,
+        allow_hyphen_values = true,
+        value_name = "SECONDS"
+    )]
+    expand: f64,
+    /// Join cuts separated by less than SECONDS.
+    #[arg(long, default_value_t = 0.0, value_name = "SECONDS")]
+    merge_gap: f64,
+    /// Drop cuts shorter than SECONDS.
+    #[arg(long, default_value_t = 0.0, value_name = "SECONDS")]
+    min_cut: f64,
     /// Use this transcript instead of the cached one or a new one.
-    #[arg(long)]
+    #[arg(long, value_name = "FILE")]
     transcript: Option<PathBuf>,
-    /// The model for instructions the phrase reader cannot follow. Default: VERBATIM_AI, else the API key found.
-    #[arg(long, value_enum)]
-    ai: Option<ai::Provider>,
-    /// The model id; default VERBATIM_AI_MODEL, or claude-sonnet-5-5 for Anthropic.
-    #[arg(long)]
-    ai_model: Option<String>,
-    /// Never call a model: fail when the instruction is not understood.
-    #[arg(long)]
-    no_ai: bool,
     #[command(flatten)]
     speech: SpeechArgs,
 }
@@ -155,6 +209,27 @@ struct SpeechArgs {
     /// auto: Parakeet, or Canary when --lang names one of its languages.
     #[arg(long, value_enum, default_value = "auto")]
     engine: asr::EngineChoice,
+}
+
+/// How an exact cut is encoded (ignored with --fast).
+#[derive(Args, Clone)]
+struct EncodeArgs {
+    #[arg(long, value_enum, default_value = "h264")]
+    codec: media::VideoCodec,
+    /// Constant quality, 0–51: lower is better and bigger.
+    #[arg(long, default_value_t = 18, value_parser = clap::value_parser!(u8).range(0..=51))]
+    crf: u8,
+    /// Encoder speed: ultrafast, superfast, veryfast, faster, fast, medium, slow, slower, veryslow.
+    #[arg(long, default_value = "medium")]
+    preset: String,
+    #[arg(long, default_value = "192k")]
+    audio_bitrate: String,
+    /// Leave the video out of the result.
+    #[arg(long)]
+    no_video: bool,
+    /// Leave the audio out of the result.
+    #[arg(long)]
+    no_audio: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -293,120 +368,176 @@ fn write_exports(
     Ok(())
 }
 
-fn spec_edits(specs: &[String], keep: bool) -> Result<Vec<Edit>> {
+/// `12,15-18` → the 1-based numbers it lists.
+fn segment_numbers(lists: &[String]) -> Result<Vec<usize>> {
     let mut out = Vec::new();
-    for s in specs {
-        let p = parse_instruction(s);
-        if !p.is_complete() {
-            bail!(
-                "cannot read the range {s:?}: write 15:39-15:43, \"last 5:42\", \"first 30\", 12:00-end or start-0:30"
-            );
+    for item in lists
+        .iter()
+        .flat_map(|l| l.split(','))
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+    {
+        let bad = || format!("{item:?} is not a segment number or range: write 12, 15-18");
+        match item.split_once('-') {
+            Some((a, b)) => {
+                let (a, b): (usize, usize) = (
+                    a.trim().parse().with_context(bad)?,
+                    b.trim().parse().with_context(bad)?,
+                );
+                if a == 0 || b < a {
+                    bail!(bad());
+                }
+                out.extend(a..=b);
+            }
+            None => {
+                let n: usize = item.parse().with_context(bad)?;
+                if n == 0 {
+                    bail!(bad());
+                }
+                out.push(n);
+            }
         }
-        out.extend(
-            p.edits
-                .into_iter()
-                .map(|e| if keep { Edit::keep(e.span) } else { e }),
-        );
     }
     Ok(out)
 }
 
+fn segment_ranges(t: &Transcript, numbers: &[usize]) -> Result<Vec<Range>> {
+    numbers
+        .iter()
+        .map(|&n| {
+            t.segments
+                .get(n - 1)
+                .map(|s| Range::new(s.start, s.end))
+                .with_context(|| {
+                    format!(
+                        "there is no segment {n}: the transcript has {}",
+                        t.segments.len()
+                    )
+                })
+        })
+        .collect()
+}
+
 struct Planned {
     cuts: CutList,
-    /// "phrase", "ai" or "flags": where the edits came from.
-    source: &'static str,
-    note: Option<String>,
     transcript: Option<Transcript>,
 }
 
 fn plan(media: &Path, a: &EditArgs, duration: f64, quiet: bool) -> Result<Planned> {
-    let mut edits = spec_edits(&a.delete, false)?;
-    edits.extend(spec_edits(&a.keep, true)?);
+    let mut edits: Vec<Edit> = Vec::new();
+    for r in &a.delete {
+        edits.push(Edit::delete(parse_range(r).map_err(anyhow::Error::msg)?));
+    }
+    for r in &a.keep {
+        edits.push(Edit::keep(parse_range(r).map_err(anyhow::Error::msg)?));
+    }
+    let secs = |s: &Option<String>| {
+        s.as_deref()
+            .map(parse_seconds)
+            .transpose()
+            .map_err(anyhow::Error::msg)
+    };
+    if let Some(s) = secs(&a.delete_first)? {
+        edits.push(Edit::delete(Span::First { seconds: s }));
+    }
+    if let Some(s) = secs(&a.delete_last)? {
+        edits.push(Edit::delete(Span::Last { seconds: s }));
+    }
+    if let Some(s) = secs(&a.keep_first)? {
+        edits.push(Edit::keep(Span::First { seconds: s }));
+    }
+    if let Some(s) = secs(&a.keep_last)? {
+        edits.push(Edit::keep(Span::Last { seconds: s }));
+    }
+    let delete_segments = segment_numbers(&a.segments)?;
+    let keep_segments = segment_numbers(&a.keep_segments)?;
     let mut ranges: Vec<Range> = Vec::new();
-    if let Some(p) = &a.cuts {
-        let text = std::fs::read_to_string(p)?;
+    for p in &a.cuts {
+        let text =
+            std::fs::read_to_string(p).with_context(|| format!("reading {}", p.display()))?;
         let list: CutList = serde_json::from_str(&text)
             .with_context(|| format!("{} is not a cut list", p.display()))?;
         ranges.extend(list.delete);
     }
-    let mut source = "flags";
-    let mut note_text = None;
-    let (mut fillers, mut silences, mut phrases) = (a.fillers, a.silences, a.phrase.clone());
-    let mut transcript: Option<Transcript> = None;
-    if let Some(instr) = a.instruction.as_deref().filter(|s| !s.trim().is_empty()) {
-        let parsed = parse_instruction(instr);
-        if parsed.is_complete() {
-            source = "phrase";
-            edits.extend(parsed.edits);
-        } else {
-            if a.no_ai {
-                bail!(
-                    "not understood without a model: {}. Use times (\"de 15:39 à 15:43\"), or drop --no-ai",
-                    parsed.unparsed.join(", ")
-                );
-            }
-            let model = ai::Ai::from_env(a.ai, a.ai_model.clone())?;
-            let t = transcript_for(media, a.transcript.as_deref(), false, &a.speech, quiet)?;
-            note(
-                quiet,
-                format!("Asking {} to read the instruction…", model.model),
-            );
-            let p = ai::plan(&model, instr, duration, Some(&t))?;
-            transcript = Some(t);
-            source = "ai";
-            edits.extend(p.edits);
-            fillers |= p.fillers;
-            silences = silences.or(p.silences);
-            phrases.extend(p.phrases);
-            note_text = p.note;
-        }
-    }
-    if fillers
-        || silences.is_some()
-        || !phrases.is_empty()
-        || transcript.is_none() && a.transcript.is_some()
-    {
-        let t = match transcript.take() {
-            Some(t) => t,
-            None => transcript_for(media, a.transcript.as_deref(), false, &a.speech, quiet)?,
-        };
-        if fillers {
+    let filler_words: Option<Vec<String>> = a.filler_words.as_deref().map(|w| {
+        w.split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    });
+    let needs_transcript = a.fillers
+        || filler_words.is_some()
+        || a.silences.is_some()
+        || !a.phrase.is_empty()
+        || !delete_segments.is_empty()
+        || !keep_segments.is_empty();
+    let mut transcript = None;
+    if needs_transcript {
+        let t = transcript_for(media, a.transcript.as_deref(), false, &a.speech, quiet)?;
+        if let Some(list) = &filler_words {
+            ranges.extend(verbatim_edl::fillers_in(&t.words, list));
+        } else if a.fillers {
             ranges.extend(verbatim_edl::fillers(&t.words));
         }
-        if let Some(gap) = silences {
+        if let Some(gap) = a.silences {
             ranges.extend(verbatim_edl::silences(&t.words, duration, gap, a.pad));
         }
-        for p in &phrases {
+        for p in &a.phrase {
             let found = verbatim_edl::find_text(&t.words, p);
             if found.is_empty() {
                 note(quiet, format!("\"{p}\" is not in the transcript"));
             }
             ranges.extend(found);
         }
+        ranges.extend(segment_ranges(&t, &delete_segments)?);
+        if !keep_segments.is_empty() {
+            let kept = verbatim_edl::merge(segment_ranges(&t, &keep_segments)?);
+            ranges.extend(verbatim_edl::complement(&kept, duration));
+        }
         transcript = Some(t);
     }
     ranges.extend(resolve(&edits, duration));
+    // Shape the cuts: grow or shrink them, join close ones, drop tiny ones.
+    if a.expand != 0.0 {
+        ranges = ranges
+            .into_iter()
+            .map(|r| Range::new(r.start - a.expand, r.end + a.expand))
+            .filter(|r| r.end > r.start)
+            .collect();
+    }
     let mut cuts = CutList::new(duration, ranges);
+    if a.merge_gap > 0.0 {
+        let grown: Vec<Range> = cuts
+            .delete
+            .iter()
+            .map(|r| Range::new(r.start, r.end + a.merge_gap))
+            .collect();
+        let joined = verbatim_edl::merge(grown)
+            .into_iter()
+            .map(|r| Range::new(r.start, (r.end - a.merge_gap).max(r.start)))
+            .collect();
+        cuts = CutList::new(duration, joined);
+    }
+    if a.min_cut > 0.0 {
+        cuts = CutList::new(
+            duration,
+            cuts.delete
+                .into_iter()
+                .filter(|r| r.len() >= a.min_cut)
+                .collect(),
+        );
+    }
     cuts.source = media.file_name().map(|n| n.to_string_lossy().into_owned());
-    Ok(Planned {
-        cuts,
-        source,
-        note: note_text,
-        transcript,
-    })
+    Ok(Planned { cuts, transcript })
 }
 
-fn describe(p: &Planned) -> String {
+fn describe(cuts: &CutList) -> String {
+    if cuts.delete.is_empty() {
+        return "Nothing to cut.".into();
+    }
     let mut s = String::new();
-    if let Some(n) = &p.note {
-        s.push_str(&format!("{n}\n"));
-    }
-    if p.cuts.delete.is_empty() {
-        s.push_str("Nothing to cut.\n");
-        return s;
-    }
     let shown = 40;
-    for r in p.cuts.delete.iter().take(shown) {
+    for r in cuts.delete.iter().take(shown) {
         s.push_str(&format!(
             "  cut {} → {}  ({:.1} s)\n",
             format_clock(r.start, true),
@@ -414,31 +545,48 @@ fn describe(p: &Planned) -> String {
             r.len()
         ));
     }
-    if p.cuts.delete.len() > shown {
-        s.push_str(&format!("  … and {} more\n", p.cuts.delete.len() - shown));
+    if cuts.delete.len() > shown {
+        s.push_str(&format!("  … and {} more\n", cuts.delete.len() - shown));
     }
     s.push_str(&format!(
-        "{} cut(s), {} removed: {} → {}\n",
-        p.cuts.delete.len(),
-        format_clock(verbatim_edl::total(&p.cuts.delete), true),
-        format_clock(p.cuts.duration, false),
-        format_clock(p.cuts.output_duration(), false)
+        "{} cut(s), {} removed: {} → {}",
+        cuts.delete.len(),
+        format_clock(verbatim_edl::total(&cuts.delete), true),
+        format_clock(cuts.duration, false),
+        format_clock(cuts.output_duration(), false)
     ));
     s
 }
 
-fn confirm(question: &str) -> Result<bool> {
-    if !std::io::stdin().is_terminal() {
-        bail!("this plan came from a model: check it with --dry-run, then pass --yes to apply it");
+fn shell_quote(s: &str) -> String {
+    if s.chars()
+        .all(|c| c.is_ascii_alphanumeric() || "._/-:".contains(c))
+    {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', "'\\''"))
     }
-    eprint!("{question} [y/N] ");
-    std::io::stderr().flush()?;
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    Ok(matches!(
-        line.trim().to_lowercase().as_str(),
-        "y" | "yes" | "o" | "oui"
-    ))
+}
+
+fn print_pieces(pieces: &[(usize, &Piece)], json: bool) -> Result<()> {
+    for (n, p) in pieces {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string(
+                    &json!({ "n": n, "start": p.start, "end": p.end, "text": p.text })
+                )?
+            );
+        } else {
+            println!(
+                "{n:>4}  {} – {}  {}",
+                format_clock(p.start, true),
+                format_clock(p.end, true),
+                p.text.trim()
+            );
+        }
+    }
+    Ok(())
 }
 
 fn main() {
@@ -451,6 +599,16 @@ fn main() {
 fn run(cli: Cli) -> Result<()> {
     let quiet = cli.quiet;
     match cli.command {
+        Command::Info { media } => {
+            let p = media::probe(&media)?;
+            println!(
+                "{}",
+                serde_json::to_string_pretty(
+                    &json!({ "file": media.display().to_string(), "duration": p.duration, "clock": format_clock(p.duration, true), "video": p.has_video, "audio": p.has_audio, "ffprobe": p.raw })
+                )?
+            );
+            Ok(())
+        }
         Command::Transcribe {
             media,
             format,
@@ -471,6 +629,42 @@ fn run(cli: Cli) -> Result<()> {
                 quiet,
             )
         }
+        Command::Segments {
+            media,
+            grep,
+            from,
+            to,
+            words,
+            json,
+            transcript,
+            speech,
+        } => {
+            let t = transcript_for(&media, transcript.as_deref(), false, &speech, quiet)?;
+            let bound = |s: &Option<String>| {
+                s.as_deref()
+                    .map(parse_seconds)
+                    .transpose()
+                    .map_err(anyhow::Error::msg)
+            };
+            let (from, to) = (
+                bound(&from)?.unwrap_or(0.0),
+                bound(&to)?.unwrap_or(f64::INFINITY),
+            );
+            let pieces = if words { &t.words } else { &t.segments };
+            let shown: Vec<(usize, &Piece)> = pieces
+                .iter()
+                .enumerate()
+                .map(|(i, p)| (i + 1, p))
+                .filter(|(_, p)| p.start >= from && p.start < to)
+                .filter(|(_, p)| {
+                    grep.is_empty()
+                        || grep
+                            .iter()
+                            .any(|g| p.text.to_lowercase().contains(&g.to_lowercase()))
+                })
+                .collect();
+            print_pieces(&shown, json)
+        }
         Command::Export {
             transcript,
             format,
@@ -490,7 +684,7 @@ fn run(cli: Cli) -> Result<()> {
         } => {
             let probe = media::probe(&media)?;
             let p = plan(&media, &edit, probe.duration, quiet)?;
-            note(quiet, describe(&p).trim_end());
+            note(quiet, describe(&p.cuts));
             let body = format!("{}\n", serde_json::to_string_pretty(&p.cuts)?);
             match output {
                 Some(o) => {
@@ -507,18 +701,28 @@ fn run(cli: Cli) -> Result<()> {
             edit,
             output,
             fast,
+            encode,
             subtitles,
-            yes,
             dry_run,
             json,
         } => {
             let probe = media::probe(&media)?;
             let p = plan(&media, &edit, probe.duration, quiet)?;
-            let summary = describe(&p);
             if !json || dry_run {
-                note(quiet && !dry_run, summary.trim_end());
+                note(quiet && !dry_run, describe(&p.cuts));
             }
-            let result = |written: bool| json!({ "source": p.source, "note": p.note, "cuts": p.cuts, "keeps": p.cuts.keeps(), "outputDuration": p.cuts.output_duration(), "output": written.then(|| output.display().to_string()), "command": format!("verbatim cut {} {} -o {}", media.display(), p.cuts.cli_args().join(" "), output.display()) });
+            let command = format!(
+                "verbatim cut {} {} -o {}",
+                shell_quote(&media.display().to_string()),
+                p.cuts
+                    .cli_args()
+                    .iter()
+                    .map(|a| shell_quote(a))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+                shell_quote(&output.display().to_string())
+            );
+            let result = |written: bool| json!({ "cuts": p.cuts, "keeps": p.cuts.keeps(), "outputDuration": p.cuts.output_duration(), "output": written.then(|| output.display().to_string()), "command": command });
             if dry_run {
                 if json {
                     println!("{}", serde_json::to_string_pretty(&result(false))?);
@@ -528,13 +732,18 @@ fn run(cli: Cli) -> Result<()> {
             if p.cuts.delete.is_empty() {
                 bail!("nothing to cut");
             }
-            if p.source == "ai" && !yes && !confirm("Apply these cuts?")? {
-                bail!("cancelled");
-            }
             if std::fs::canonicalize(&media).ok() == std::fs::canonicalize(&output).ok() {
                 bail!("the output would overwrite the source");
             }
-            media::render(&media, &output, &p.cuts.keeps(), &probe, fast, quiet)?;
+            let enc = media::Encode {
+                codec: encode.codec,
+                crf: encode.crf,
+                preset: encode.preset.clone(),
+                audio_bitrate: encode.audio_bitrate.clone(),
+                no_video: encode.no_video,
+                no_audio: encode.no_audio,
+            };
+            media::render(&media, &output, &p.cuts.keeps(), &probe, fast, &enc, quiet)?;
             if subtitles {
                 let t = match p.transcript {
                     Some(ref t) => t.clone(),
@@ -610,19 +819,34 @@ fn run(cli: Cli) -> Result<()> {
                     m.dir().display()
                 );
             }
-            let ai = ai::Ai::from_env(None, None);
-            println!(
-                "ai       {}",
-                ai.map_or_else(
-                    |e| format!("none ({e})"),
-                    |a| format!("{:?} {}", a.provider, a.model)
-                )
-            );
             Ok(())
         }
         Command::Skill => {
             print!("{SKILL}");
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn segment_lists() {
+        assert_eq!(
+            segment_numbers(&["12,15-17".into(), " 3 ".into()]).unwrap(),
+            vec![12, 15, 16, 17, 3]
+        );
+        assert!(segment_numbers(&["0".into()]).is_err());
+        assert!(segment_numbers(&["5-2".into()]).is_err());
+        assert!(segment_numbers(&["douze".into()]).is_err());
+    }
+
+    #[test]
+    fn quoting() {
+        assert_eq!(shell_quote("15:39-15:43"), "15:39-15:43");
+        assert_eq!(shell_quote("my talk.mp4"), "'my talk.mp4'");
+        assert_eq!(shell_quote("it's"), "'it'\\''s'");
     }
 }

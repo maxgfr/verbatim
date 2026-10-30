@@ -28,6 +28,28 @@ pub struct Probe {
     pub duration: f64,
     pub has_video: bool,
     pub has_audio: bool,
+    /// ffprobe's own description of the file, for `verbatim info`.
+    pub raw: serde_json::Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+pub enum VideoCodec {
+    H264,
+    H265,
+}
+
+/// How an exact cut is encoded.
+#[derive(Debug, Clone)]
+pub struct Encode {
+    pub codec: VideoCodec,
+    /// Constant quality: lower is better and bigger (H.264 18 ≈ visually lossless).
+    pub crf: u8,
+    /// x264/x265 speed preset: ultrafast … veryslow.
+    pub preset: String,
+    pub audio_bitrate: String,
+    /// Drop the video, or the audio, from the result.
+    pub no_video: bool,
+    pub no_audio: bool,
 }
 
 pub fn probe(path: &Path) -> Result<Probe> {
@@ -36,7 +58,7 @@ pub fn probe(path: &Path) -> Result<Probe> {
             "-v",
             "error",
             "-show_entries",
-            "format=duration:stream=codec_type",
+            "format=duration,size,bit_rate,format_name:stream=index,codec_type,codec_name,width,height,r_frame_rate,sample_rate,channels",
             "-of",
             "json",
         ])
@@ -60,6 +82,7 @@ pub fn probe(path: &Path) -> Result<Probe> {
         .map(|s| s.iter().filter_map(|s| s["codec_type"].as_str()).collect())
         .unwrap_or_default();
     Ok(Probe {
+        raw: v.clone(),
         duration,
         has_video: kinds.contains(&"video"),
         has_audio: kinds.contains(&"audio"),
@@ -128,6 +151,7 @@ pub fn render(
     keeps: &[Range],
     probe: &Probe,
     fast: bool,
+    encode: &Encode,
     quiet: bool,
 ) -> Result<()> {
     if keeps.is_empty() {
@@ -136,8 +160,11 @@ pub fn render(
     if fast {
         return render_fast(input, out, keeps, quiet);
     }
-    let video = probe.has_video && !audio_only(out);
-    let audio = probe.has_audio;
+    let video = probe.has_video && !audio_only(out) && !encode.no_video;
+    let audio = probe.has_audio && !encode.no_audio;
+    if !video && !audio {
+        bail!("nothing to write: the result would have neither video nor audio");
+    }
     let mut graph = String::new();
     let mut inputs = String::new();
     for (i, k) in keeps.iter().enumerate() {
@@ -187,15 +214,32 @@ pub fn render(
         cmd.arg("-filter_complex").arg(&graph);
     }
     if video {
+        let codec = match encode.codec {
+            VideoCodec::H264 => "libx264",
+            VideoCodec::H265 => "libx265",
+        };
+        let crf = encode.crf.to_string();
         cmd.args([
-            "-map", "[v]", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt",
+            "-map",
+            "[v]",
+            "-c:v",
+            codec,
+            "-preset",
+            &encode.preset,
+            "-crf",
+            &crf,
+            "-pix_fmt",
             "yuv420p",
         ]);
+        if encode.codec == VideoCodec::H265 {
+            // Apple players need the hvc1 tag.
+            cmd.args(["-tag:v", "hvc1"]);
+        }
     }
     if audio {
         cmd.args(["-map", "[a]"]);
         if !audio_only(out) {
-            cmd.args(["-c:a", "aac", "-b:a", "192k"]);
+            cmd.args(["-c:a", "aac", "-b:a", &encode.audio_bitrate]);
         }
     }
     if !audio_only(out) {

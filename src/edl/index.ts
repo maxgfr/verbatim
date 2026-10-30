@@ -23,10 +23,6 @@ export interface CutList {
   source?: string;
 }
 
-export interface Parsed {
-  edits: Edit[];
-  unparsed: string[];
-}
 
 export type Format = "txt" | "txt-timed" | "srt" | "vtt" | "md" | "json" | "csv";
 
@@ -47,7 +43,6 @@ export function loadEdl(source: string | URL | BufferSource = new URL("./wasm/ed
 
 const words = (w: TranscriptPiece[]) => JSON.stringify(w);
 
-export const parseInstruction = (text: string): Parsed => JSON.parse(edl.parseInstruction(text));
 export const resolve = (edits: Edit[], duration: number): CutList => JSON.parse(edl.resolve(JSON.stringify(edits), duration));
 export const cutList = (ranges: Range[], duration: number): CutList => JSON.parse(edl.cutList(JSON.stringify(ranges), duration));
 export const fillers = (w: TranscriptPiece[]): Range[] => JSON.parse(edl.fillers(words(w)));

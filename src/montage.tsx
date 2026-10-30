@@ -5,7 +5,7 @@
 // the same cuts leave as a cut list or a `verbatim cut` command.
 
 import { useRef, useState } from "react";
-import { cliArgs, cutList, fillers, findText, keeps, type Plan, parseInstruction, type Range, remap, render as renderText, resolve, silences } from "./edl/index.ts";
+import { cliArgs, cutList, fillers, findText, keeps, type Plan, type Range, remap, render as renderText, resolve, silences } from "./edl/index.ts";
 import type { EditorApi } from "./editor.tsx";
 import { baseName, download, exportDoc } from "./engine/export.ts";
 import { clock } from "./engine/time.ts";
@@ -29,7 +29,7 @@ export function Montage({ api }: { api: EditorApi }) {
   const { doc, duration } = api;
   const cuts = (doc.cuts ?? []) as Range[];
   const [instruction, setInstruction] = useState("");
-  const [proposal, setProposal] = useState<{ ranges: Range[]; note: string | null; fromModel: boolean } | null>(null);
+  const [proposal, setProposal] = useState<{ ranges: Range[]; note: string | null } | null>(null);
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
   const [gap, setGap] = useState(1.5);
@@ -46,18 +46,14 @@ export function Montage({ api }: { api: EditorApi }) {
     if (!text) return;
     setStatus("");
     setProposal(null);
-    const parsed = parseInstruction(text);
-    if (parsed.edits.length && !parsed.unparsed.length) {
-      setProposal({ ranges: resolve(parsed.edits, duration).delete, note: null, fromModel: false });
-      return;
-    }
+    // Sentences, in any language, are read by the user's model; nothing is guessed here.
     const { savedSettings, loadLlm, planEdit } = await import("./ai/byok.ts");
     await loadLlm();
     if (!savedSettings()) {
       setStatus(
         t(
-          `Not understood without a model: “${parsed.unparsed.join(", ")}”. Use times (“from 15:39 to 15:43”, “the last 5:42”), or set up a model on the AI page.`,
-          `Pas compris sans modèle : « ${parsed.unparsed.join(", ")} ». Donnez des temps (« de 15:39 à 15:43 », « les 5:42 dernières minutes »), ou configurez un modèle dans la page IA.`,
+          "Saying what to cut needs an AI provider (AI page). Without one, select words and press Delete, use a segment's scissors, or the buttons below.",
+          "Dire ce qu'il faut couper demande un fournisseur d'IA (page IA). Sans lui, sélectionnez des mots puis Suppr, utilisez les ciseaux d'un segment ou les boutons ci-dessous.",
         ),
       );
       return;
@@ -67,7 +63,7 @@ export function Montage({ api }: { api: EditorApi }) {
     try {
       const plan = await planEdit(text, duration, doc.transcript, abort.current.signal);
       const ranges = planRanges(plan, api);
-      setProposal({ ranges, note: plan.note, fromModel: true });
+      setProposal({ ranges, note: plan.note });
       if (!ranges.length) setStatus(plan.note ?? t("The model found nothing to cut.", "Le modèle n'a rien trouvé à couper."));
     } catch (e) {
       setStatus((e as Error).message);
@@ -122,7 +118,7 @@ export function Montage({ api }: { api: EditorApi }) {
 
       {proposal ? (
         <div className="proposal" aria-live="polite">
-          {proposal.fromModel ? <p className="note">{proposal.note ?? t("Plan from your model:", "Plan de votre modèle :")}</p> : null}
+          <p className="note">{proposal.note ?? t("Plan from your model:", "Plan de votre modèle :")}</p>
           <ul className="cuts">
             {proposal.ranges.map(([a, b]) => (
               <li key={`${a}-${b}`}>

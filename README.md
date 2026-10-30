@@ -20,7 +20,7 @@ Transcription services want your recording on their servers, and editing a talk 
 
 1. Drop a video or audio file. The page says which model will run and what it downloads, once (Parakeet TDT 0.6B v3, about 670 MB; Canary 215 MB; Whisper from 80 MB). Name the spoken language when you know it: English, French, German and Spanish then go to Canary, which is told the language, where Parakeet would guess it.
 2. The transcript opens next to the media. The playing word is underlined; click any word to hear it. Correct a segment in place.
-3. Cut: select words and press Delete, use a segment's scissors, remove hesitations or long pauses, or say it: “supprime de 15:39 à 15:43 et les 5:42 dernières minutes”. Times are read on the spot; anything else goes to your own AI model, whose plan is shown before it applies.
+3. Cut: select words and press Delete, use a segment's scissors, remove hesitations or long pauses, or say it in any language (“supprime de 15:39 à 15:43 et les 5:42 dernières minutes”, “remove the part about pricing”) to your own AI model, whose plan is shown before it applies.
 4. Play without the cuts, then export the edited file (MP4 or M4A, rendered with WebCodecs in the page), its subtitles, or the cut list and the matching `verbatim cut` command.
 
 Exports: TXT (with or without times), SRT, VTT, Markdown, JSON, CSV, or all of them in a zip, in the original language or a translation.
@@ -28,7 +28,7 @@ Exports: TXT (with or without times), SRT, VTT, Markdown, JSON, CSV, or all of t
 | | |
 |---|---|
 | **Speech models** | Parakeet TDT 0.6B v3 (25 European languages, found by the model, exact word timings), Canary 180M Flash (EN, FR, DE, ES, smaller), Whisper base / small / large v3 turbo (WebGPU). Through [llm-connect](https://github.com/maxgfr/llm-models/tree/main/packages/llm-connect), on WebGPU or WebAssembly |
-| **Editing** | Cuts by selection, by segment, by time phrase in French or English, hesitations, pauses, phrases said; undo; preview without the cuts; frame-exact render in the page |
+| **Editing** | Cuts by selection, by segment, hesitations, pauses, phrases said, or said in any language to your AI model; undo; preview without the cuts; frame-exact render in the page |
 | **Optional AI, your key** | Summary, timestamped chapters, translation of every segment, cleanup, and edits described by content (“cut the part about pricing”), with OpenAI, Anthropic, Google, Mistral, Groq, OpenRouter, xAI or a model on your machine (Ollama, LM Studio, Jan). Cloud transcription too, when you pick it |
 | **History** | Transcripts, corrections and cuts stay in this browser; the media is never stored |
 
@@ -37,16 +37,21 @@ Exports: TXT (with or without times), SRT, VTT, Markdown, JSON, CSV, or all of t
 ```bash
 brew install maxgfr/tap/verbatim        # pulls ffmpeg; macOS on Apple silicon, Linux x64 and arm64
 
-verbatim transcribe talk.mp4 -o talk.srt
-verbatim transcribe talk.mp4 -f txt,vtt,md,json -o out/
-verbatim transcribe talk.mp4 --lang fr -o talk.srt   # name the language: Canary is told it
-verbatim cut talk.mp4 "supprime de 15:39 à 15:43 et les 5:42 dernières minutes" -o short.mp4 --dry-run
-verbatim cut talk.mp4 --delete 15:39-15:43 --delete "last 5:42" --fillers --silences 1.5 -o short.mp4 --subtitles
+verbatim info talk.mp4                                   # duration and streams, JSON
+verbatim transcribe talk.mp4 --lang fr -o talk.srt       # or -f txt,vtt,md,json,csv -o out/
+verbatim segments talk.mp4 --lang fr --grep pricing      # numbered, timed segments
+verbatim cut talk.mp4 --delete 15:39-15:43 --delete-last 5:42 -o short.mp4 --dry-run
+verbatim cut talk.mp4 --segments 41-47 --fillers --silences 1.5 --lang fr -o clean.mp4 --subtitles
 verbatim plan talk.mp4 --fillers -o cuts.json && verbatim cut talk.mp4 --cuts cuts.json -o clean.mp4 --json
-verbatim export talk.json -f vtt          # a transcript from the site or the CLI
 ```
 
-The CLI runs the same Parakeet and Canary exports as the site through ONNX Runtime (downloaded once, pinned by revision and SHA-256; `--lang en|fr|de|es` uses Canary, told the language, since Parakeet can mistake accented speech for English), cuts with ffmpeg (exact re-encode, or `--fast` stream copy), and reads time phrases with the same Rust engine the site loads as WebAssembly. Instructions that need a model use `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` (with `--ai-model`) or `--ai ollama`; the plan is shown and confirmed before any file is written. `verbatim --help` for everything.
+The CLI takes options, never sentences: ranges, first/last durations, transcript segments, phrases,
+hesitations (with your own word list for any language), pauses, saved cut lists, plus cut shaping
+(`--expand`, `--merge-gap`, `--min-cut`) and encoding (`--codec h264|h265`, `--crf`, `--preset`,
+`--audio-bitrate`, `--no-audio`, `--fast`). It runs the same Parakeet and Canary exports as the site
+through ONNX Runtime (downloaded once, pinned by revision and SHA-256; `--lang en|fr|de|es` uses Canary,
+told the language, since Parakeet can mistake accented speech for English) and cuts with ffmpeg.
+`verbatim --help` for everything.
 
 ### Agent skill
 
@@ -54,7 +59,7 @@ The CLI runs the same Parakeet and Canary exports as the site through ONNX Runti
 npx skills add maxgfr/verbatim
 ```
 
-Teaches Claude Code, Codex, Cursor and others to transcribe, plan cuts, show the plan, then apply it. `verbatim skill` prints the copy that matches the installed version.
+Your agent (Claude Code, Codex, Cursor…) understands what you ask, in any language, reads the transcript when the request is about content, turns it into `verbatim` options, shows the plan, then applies it. `verbatim skill` prints the copy that matches the installed version.
 
 ## Privacy
 
@@ -73,9 +78,9 @@ cargo run -p verbatim-cli -- --help
 
 | Path | |
 |---|---|
-| `crates/edl` | The engine: cut lists, time phrases (FR/EN), fillers, silences, transcript remapping, every export format, the AI plan prompt and parser |
+| `crates/edl` | The engine: cut lists, option values (ranges, durations), fillers, silences, transcript remapping, every export format, the site's AI plan prompt and parser |
 | `crates/wasm` | The engine for the page (wasm-bindgen) |
-| `crates/cli` | `verbatim`: Parakeet (parakeet-rs, ONNX Runtime), ffmpeg, AI providers |
+| `crates/cli` | `verbatim`: Parakeet and Canary (ONNX Runtime), ffmpeg |
 | `src/` | The site (React 19, Bun build, no framework CSS); the speech models run in `src/worker.ts` |
 | `skills/verbatim` | The agent skill |
 

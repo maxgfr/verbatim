@@ -6,7 +6,7 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem("verbatim-lang", "en"));
 });
 
-test("cut by plain words, render the edit and export subtitles, all in the page", async ({ page }) => {
+test("cut segments and hesitations, render the edit and export subtitles, all in the page", async ({ page }) => {
   const w = await watch(page);
   await page.goto("./");
   const id = await seedDoc(page);
@@ -18,11 +18,9 @@ test("cut by plain words, render the edit and export subtitles, all in the page"
   await page.locator(".reattach input[type=file]").setInputFiles(fixture("talk.mp4"));
   await expect(page.locator(".deck-meta")).toContainText("0:14");
 
-  await page.getByLabel("Say what to cut").fill("supprime de 0:04 à 0:06 et les 3 dernières secondes");
-  await page.getByRole("button", { name: "Plan" }).click();
-  await expect(page.locator(".proposal")).toContainText("0:04 → 0:06");
-  await expect(page.locator(".proposal")).toContainText("0:11 → 0:14");
-  await page.getByRole("button", { name: /Apply 2 cut/ }).click();
+  // Cut "Le premier point est simple." (segment 4) and the last segment, by their scissors.
+  await page.getByRole("button", { name: "Cut segment 4" }).click({ force: true });
+  await page.getByRole("button", { name: "Cut segment 6" }).click({ force: true });
   await page.getByRole("button", { name: /Remove hesitations/ }).click();
   await expect(page.locator(".cut-list .cuts li")).toHaveCount(3);
   await expect(page.locator(".w.cut").first()).toBeVisible();

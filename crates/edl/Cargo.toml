@@ -1,6 +1,6 @@
 [package]
 name = "verbatim-edl"
-description = "Cut lists for verbatim: time phrases, ranges, fillers, silences, transcript remapping"
+description = "Cut lists for verbatim: ranges, segments, fillers, silences, transcript remapping, exports"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
