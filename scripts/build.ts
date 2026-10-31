@@ -150,7 +150,7 @@ for (const f of files) total += (await stat(`${dist}/${f}`)).size;
 console.log(`site: ${files.length + 1} files, ${(total / 1048576).toFixed(1)} MiB, version ${manifest.version}`);
 
 if (serve) {
-  const port = Number(process.env.PORT ?? 4173);
+  const port = Number(process.env.PORT ?? 4317);
   const types: Record<string, string> = { wasm: "application/wasm", webmanifest: "application/manifest+json", mjs: "text/javascript", onnx: "application/octet-stream" };
   Bun.serve({
     port,

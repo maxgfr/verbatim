@@ -14,6 +14,7 @@ import type { Doc, TranscriptPiece } from "./engine/types.ts";
 import { languageLabel, useLang } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
 import { Montage } from "./montage.tsx";
+import { Retranscribe } from "./retranscribe.tsx";
 import { Timeline } from "./timeline.tsx";
 
 const AiPanel = lazy(() => import("./ai-panel.tsx").then((m) => ({ default: m.AiPanel })));
@@ -342,6 +343,7 @@ export function Editor({ id }: { id: string }) {
             {clock(duration)}
             {doc.transcript.language ? ` · ${languageLabel(doc.transcript.language, lang)}` : ""} · {doc.engine} · {segments.length} {t("segments", "segments")}
           </p>
+          <Retranscribe doc={doc} file={file} update={update} />
         </header>
         {doc.summary ? (
           <div className="liner-notes">

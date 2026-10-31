@@ -668,6 +668,38 @@ textarea:focus-visible {
   color: var(--ink-2);
 }
 
+/* The transcript growing while the model runs: the last few phrases, newest last. */
+.live {
+  list-style: none;
+  padding: 0.5rem 0 0;
+  display: grid;
+  gap: 0.25rem;
+  font-size: var(--s-small);
+  color: var(--ink-2);
+}
+
+.live li {
+  display: grid;
+  grid-template-columns: 3.25rem minmax(0, 1fr);
+  gap: 0.5rem;
+  animation: live-in 320ms var(--ease);
+}
+
+.live li:last-child {
+  color: var(--ink);
+}
+
+.live .num {
+  color: var(--ink-3);
+}
+
+@keyframes live-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
 .job.cancelled {
   opacity: 0.5;
 }
@@ -986,6 +1018,18 @@ textarea:focus-visible {
 .sheet-meta {
   font-size: var(--s-small);
   color: var(--ink-2);
+}
+
+.retranscribe summary {
+  cursor: pointer;
+  font-size: var(--s-small);
+  color: var(--ink-2);
+}
+
+.retranscribe[open] .retranscribe-body {
+  display: grid;
+  gap: 0.6rem;
+  padding-block: 0.75rem 0.25rem;
 }
 
 .liner-notes {

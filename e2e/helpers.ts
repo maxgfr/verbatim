@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { expect, type Page } from "@playwright/test";
 
-export const siteURL = process.env.VERBATIM_URL ?? "http://localhost:4173/verbatim/";
+export const siteURL = process.env.VERBATIM_URL ?? "http://localhost:4317/verbatim/";
 const siteOrigin = new URL(siteURL).origin;
 
 export const fixture = (name: string) => new URL(`./fixtures/${name}`, import.meta.url).pathname;

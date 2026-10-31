@@ -84,7 +84,7 @@ pub const CANARY_LANGUAGES: [&str; 4] = ["en", "fr", "de", "es"];
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, clap::ValueEnum)]
 pub enum EngineChoice {
-    /// Parakeet, or Canary when `--lang` names one of its languages.
+    /// Parakeet, or Canary when `--lang` is fr, de or es.
     #[default]
     Auto,
     Parakeet,
@@ -115,6 +115,9 @@ impl Engine {
         let canary_knows = lang
             .as_deref()
             .is_some_and(|l| CANARY_LANGUAGES.contains(&l));
+        // English stays with Parakeet, the stronger model, unless Canary is asked for: the
+        // misreading runs the other way (other languages taken for English).
+        let auto_canary = canary_knows && lang.as_deref() != Some("en");
         Ok(match (choice, lang) {
             (EngineChoice::Parakeet, _) => Engine::Parakeet,
             (EngineChoice::Canary, Some(l)) if canary_knows => Engine::Canary { language: l },
@@ -124,7 +127,7 @@ impl Engine {
             (EngineChoice::Canary, None) => {
                 bail!("Canary needs the spoken language: --lang en, fr, de or es")
             }
-            (EngineChoice::Auto, Some(l)) if canary_knows => Engine::Canary { language: l },
+            (EngineChoice::Auto, Some(l)) if auto_canary => Engine::Canary { language: l },
             (EngineChoice::Auto, _) => Engine::Parakeet,
         })
     }
@@ -302,6 +305,17 @@ fn progress(quiet: bool, duration: f64) -> ProgressBar {
     bar
 }
 
+/// A transcribed phrase printed as it comes, above the progress bar (hidden when quiet).
+fn live(bar: &ProgressBar, p: &Piece) {
+    if !bar.is_hidden() {
+        bar.println(format!(
+            "[{}] {}",
+            verbatim_edl::format_clock(p.start, false),
+            p.text.trim()
+        ));
+    }
+}
+
 pub fn transcribe(samples: Vec<f32>, engine: &Engine, quiet: bool) -> Result<Transcript> {
     match engine {
         Engine::Parakeet => parakeet(samples, quiet),
@@ -328,6 +342,7 @@ fn parakeet(samples: Vec<f32>, quiet: bool) -> Result<Transcript> {
                     Some(TimestampMode::Words),
                 )
                 .context("Parakeet failed")?;
+            let before = words.len();
             words.extend(
                 r.tokens
                     .into_iter()
@@ -338,6 +353,10 @@ fn parakeet(samples: Vec<f32>, quiet: bool) -> Result<Transcript> {
                         end: offset + f64::from(t.end),
                     }),
             );
+            // Live: what this stretch said, above the progress bar.
+            for s in segments_from_words(&words[before..], 1.0, 30) {
+                live(&bar, &s);
+            }
         }
         bar.inc(((b - a) as f64 / 16.0) as u64);
     }
@@ -524,11 +543,13 @@ fn canary(samples: &[f32], language: &str, quiet: bool) -> Result<Transcript> {
             .text(&samples[a..b], language)
             .context("Canary failed")?;
         if !text.is_empty() {
-            segments.push(Piece {
+            let piece = Piece {
                 text,
                 start: span.speech_start,
                 end: span.speech_end,
-            });
+            };
+            live(&bar, &piece);
+            segments.push(piece);
         }
         bar.set_position((span.end * 1000.0) as u64);
     }
@@ -607,6 +628,13 @@ mod tests {
             }
         );
         assert_eq!(Engine::resolve(Auto, Some("it")).unwrap(), Engine::Parakeet);
+        assert_eq!(Engine::resolve(Auto, Some("en")).unwrap(), Engine::Parakeet);
+        assert_eq!(
+            Engine::resolve(Canary, Some("en")).unwrap(),
+            Engine::Canary {
+                language: "en".into()
+            }
+        );
         assert_eq!(
             Engine::resolve(Auto, Some("auto")).unwrap(),
             Engine::Parakeet

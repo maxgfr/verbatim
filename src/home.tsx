@@ -23,6 +23,11 @@ const ENGINE_KEY = "verbatim-engine";
 const LANGUAGE_KEY = "verbatim-language";
 const ACCEPT = "audio/*,video/*,.mkv,.mov,.m4a,.opus,.flac";
 
+function browserLanguage(): string {
+  const code = navigator.language?.toLowerCase().split(/[-_]/)[0] ?? "";
+  return (LANGUAGES as readonly string[]).includes(code) ? code : "auto";
+}
+
 function usePersisted<T extends string>(key: string, initial: T): [T, (v: T) => void] {
   const [v, setV] = useState<T>(() => (localStorage.getItem(key) as T | null) ?? initial);
   return [v, (next) => (localStorage.setItem(key, next), setV(next))];
@@ -86,7 +91,8 @@ function ratioOf(stage?: Stage): number | null {
 export function Home() {
   const { t, lang } = useLang();
   const [engineId, setEngineId] = usePersisted<EngineId>(ENGINE_KEY, "auto");
-  const [language, setLanguage] = usePersisted<string>(LANGUAGE_KEY, "auto");
+  // The browser's language when the models know it: told to the model, it is never guessed wrong.
+  const [language, setLanguage] = usePersisted<string>(LANGUAGE_KEY, browserLanguage());
   const [jobs, setJobs] = useState<Job[]>([]);
   const [over, setOver] = useState(false);
   const [cached, setCached] = useState<Set<string>>(new Set());
@@ -266,6 +272,15 @@ export function Home() {
                     ) : null}
                     {j.state === "done" && j.docId ? <a href={`#/t/${j.docId}`}>{t("Open the transcript", "Ouvrir la transcription")}</a> : null}
                   </div>
+                  {j.state === "running" && j.stage?.stage === "transcribe" && j.stage.live.length ? (
+                    <ol className="live" aria-label={t("Transcript so far", "Transcription en cours")}>
+                      {j.stage.live.slice(-5).map((s) => (
+                        <li key={s.start}>
+                          <span className="num">{clock(s.start)}</span> {s.text}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
                   {j.state === "running" ? (
                     <div className="meter" role="progressbar" aria-label={j.file.name} aria-valuemin={0} aria-valuemax={100} aria-valuenow={r === null ? undefined : Math.round(r * 100)}>
                       <span style={r === null ? undefined : { inlineSize: `${r * 100}%` }} className={r === null ? "indeterminate" : undefined} />

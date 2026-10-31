@@ -29,9 +29,9 @@ Install: `brew install maxgfr/tap/verbatim` (pulls ffmpeg). Check with `verbatim
 
 Pass `--lang` whenever you know it (`transcribe`, `segments`, `plan`, `cut`). Without it, Parakeet guesses
 among 25 European languages and can take accented or mixed speech for English (a French talk full of
-English terms came out as broken English). With `--lang en|fr|de|es`, Canary transcribes, told the
+English terms came out as broken English). With `--lang fr|de|es`, Canary transcribes, told the
 language (213 MB, downloaded once; `verbatim model download --engine canary` ahead). Other languages
-stay with Parakeet. If a transcript is in the wrong language, run it again with `--lang` and `--no-cache`.
+(and English) stay with Parakeet, the stronger model for them. If a transcript is in the wrong language, run it again with `--lang` and `--no-cache`.
 
 ## Cut options
 

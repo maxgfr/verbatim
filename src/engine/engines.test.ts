@@ -6,6 +6,8 @@ test("auto picks Parakeet for its languages and Whisper beyond them", () => {
   // A named language Canary knows is forced through Canary; Parakeet would guess it.
   expect(resolveEngine("auto", "fr")).toEqual({ kind: "nemo", model: "canary" });
   expect(resolveEngine("auto", "it")).toEqual({ kind: "nemo", model: "parakeet" });
+  // English is Parakeet's strength; the misreading goes the other way.
+  expect(resolveEngine("auto", "en")).toEqual({ kind: "nemo", model: "parakeet" });
   expect(resolveEngine("auto", "ja")).toEqual({ kind: "whisper", preset: "balanced" });
   expect(resolveEngine("whisper-fast", "fr")).toEqual({ kind: "whisper", preset: "fast" });
 });

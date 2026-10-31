@@ -49,7 +49,7 @@ The CLI takes options, never sentences: ranges, first/last durations, transcript
 hesitations (with your own word list for any language), pauses, saved cut lists, plus cut shaping
 (`--expand`, `--merge-gap`, `--min-cut`) and encoding (`--codec h264|h265`, `--crf`, `--preset`,
 `--audio-bitrate`, `--no-audio`, `--fast`). It runs the same Parakeet and Canary exports as the site
-through ONNX Runtime (downloaded once, pinned by revision and SHA-256; `--lang en|fr|de|es` uses Canary,
+through ONNX Runtime (downloaded once, pinned by revision and SHA-256; `--lang fr|de|es` uses Canary,
 told the language, since Parakeet can mistake accented speech for English) and cuts with ffmpeg.
 `verbatim --help` for everything.
 
@@ -69,7 +69,7 @@ The media is decoded and transcribed in the page, or on your machine with the CL
 
 ```bash
 bun install
-bun run dev          # builds the Rust engine to WebAssembly, then serves http://localhost:4173/verbatim/
+bun run dev          # builds the Rust engine to WebAssembly, then serves http://localhost:4317/verbatim/
 bun run test         # TypeScript tests (with the real WebAssembly engine)
 bun run e2e          # Playwright: cut, render, export, no request elsewhere
 cargo test --workspace

@@ -39,7 +39,7 @@ struct Cli {
 enum Command {
     /// What a media file holds: duration, streams, codecs, size (JSON).
     Info { media: PathBuf },
-    /// Transcribe a video or audio file (Parakeet, or Canary with --lang en|fr|de|es).
+    /// Transcribe a video or audio file (Parakeet, or Canary with --lang fr|de|es).
     Transcribe {
         media: PathBuf,
         /// txt, txt-timed, srt, vtt, md, json, csv; comma-separated or repeated. Default: from -o's extension, else txt.
@@ -206,7 +206,7 @@ struct SpeechArgs {
     /// English; a language Canary knows (en, fr, de, es) is transcribed by Canary, told the language.
     #[arg(long, short = 'l', env = "VERBATIM_LANG")]
     lang: Option<String>,
-    /// auto: Parakeet, or Canary when --lang names one of its languages.
+    /// auto: Parakeet (English, other languages, detection), or Canary when --lang is fr, de or es.
     #[arg(long, value_enum, default_value = "auto")]
     engine: asr::EngineChoice,
 }

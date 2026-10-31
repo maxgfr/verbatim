@@ -1,5 +1,5 @@
-// Which speech model runs. "Auto" leaves detection to Parakeet, sends a named
-// English, French, German or Spanish to Canary (told the language), other
+// Which speech model runs. "Auto" leaves detection and English to Parakeet,
+// sends a named French, German or Spanish to Canary (told the language), other
 // Parakeet languages to Parakeet, the rest to Whisper; every choice shows its
 // download before anything is fetched.
 
@@ -22,7 +22,9 @@ export function resolveEngine(id: EngineId, language: string): Engine {
       // Parakeet finds the language itself but cannot be told it, and takes accented
       // speech for English (a French talk came out as English). A language the user
       // names goes to Canary, which is told it, when Canary knows it.
-      if (language === "auto") return { kind: "nemo", model: "parakeet" };
+      // English stays with Parakeet, the stronger model: the mistake runs the other way, other
+      // languages taken for English.
+      if (language === "auto" || language === "en") return { kind: "nemo", model: "parakeet" };
       if (nemoSupports("canary", language)) return { kind: "nemo", model: "canary" };
       return nemoSupports("parakeet", language) ? { kind: "nemo", model: "parakeet" } : { kind: "whisper", preset: "balanced" };
     case "parakeet":

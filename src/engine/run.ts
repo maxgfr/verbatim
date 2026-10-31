@@ -5,13 +5,14 @@
 import { decodeAudio, spokenLanguage } from "llm-connect/whisper";
 import { scriptURL } from "../trusted.ts";
 import { type Engine, engineLabel } from "./engines.ts";
-import type { Doc, Transcript } from "./types.ts";
+import type { Doc, Transcript, TranscriptPiece } from "./types.ts";
 import type { WorkerIn, WorkerOut } from "../worker.ts";
 
 export type Stage =
   | { stage: "decode" }
   | { stage: "download"; ratio: number; loaded: number; total: number }
-  | { stage: "transcribe"; ratio: number | null; elapsed: number; duration: number }
+  /** `live`: the segments transcribed so far, on the file's timeline. */
+  | { stage: "transcribe"; ratio: number | null; elapsed: number; duration: number; live: TranscriptPiece[] }
   | { stage: "upload" };
 
 let worker: Worker | null = null;
@@ -43,7 +44,9 @@ export async function transcribeFile(file: File, engine: Engine, language: strin
     transcript = await new Promise<Transcript>((resolve, reject) => {
       let ratio: number | null = null;
       let transcribing = false;
-      const tick = setInterval(() => transcribing && onStage({ stage: "transcribe", ratio, elapsed: (performance.now() - started) / 1000, duration }), 500);
+      let live: TranscriptPiece[] = [];
+      const report = () => onStage({ stage: "transcribe", ratio, elapsed: (performance.now() - started) / 1000, duration, live });
+      const tick = setInterval(() => transcribing && report(), 500);
       const done = () => {
         clearInterval(tick);
         abort = null;
@@ -58,7 +61,12 @@ export async function transcribeFile(file: File, engine: Engine, language: strin
         else if (m.type === "ready" || m.type === "progress") {
           transcribing = true;
           if (m.type === "progress") ratio = m.ratio;
-          onStage({ stage: "transcribe", ratio, elapsed: (performance.now() - started) / 1000, duration });
+          report();
+        } else if (m.type === "partial") {
+          transcribing = true;
+          ratio = Math.min(1, m.upTo / m.duration);
+          live = [...live, ...m.segments];
+          report();
         } else if (m.type === "done") {
           done();
           resolve(m.transcript);
