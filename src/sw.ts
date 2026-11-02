@@ -54,7 +54,7 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
     (async () => {
       const cache = await caches.open(CACHE);
       // This version first, then the previous one (for tabs still running it).
-      const hit = (await cache.match(key)) ?? (req.mode === "navigate" ? undefined : await caches.match(key));
+      const hit = (await cache.match(key)) ?? (req.mode === "navigate" ? undefined : await previousMatch(key));
       if (hit) return hit;
       const res = await fetch(req);
       if (res.ok && (lazySet.has(key) || key === abs("./"))) await cache.put(key, res.clone());
@@ -62,3 +62,17 @@ sw.addEventListener("fetch", (event: FetchEvent) => {
     })(),
   );
 });
+
+/**
+ * A file from verbatim's other caches only. Never `caches.match()`: it searches every cache of the
+ * origin, and maxgfr.github.io is shared by other sites, which could plant a response for our
+ * URLs in a cache of their own.
+ */
+async function previousMatch(key: string): Promise<Response | undefined> {
+  for (const name of await caches.keys()) {
+    if (!name.startsWith("verbatim-") || name === CACHE || name === META) continue;
+    const hit = await (await caches.open(name)).match(key);
+    if (hit) return hit;
+  }
+  return undefined;
+}
