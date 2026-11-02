@@ -1,10 +1,12 @@
 import { lazy, Suspense, useEffect, useState, useSyncExternalStore } from "react";
 import { Editor } from "./editor.tsx";
+import { useUnsaved } from "./engine/store.ts";
 import { History } from "./history.tsx";
 import { Home } from "./home.tsx";
 import { setLang, useLang } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
 import { Privacy } from "./privacy.tsx";
+import { readLocal, writeLocal } from "./storage.ts";
 
 // The AI SDK and providers load only when someone opens the AI page.
 const AiPage = lazy(() => import("./ai-page.tsx").then((m) => ({ default: m.AiPage })));
@@ -38,11 +40,11 @@ type Theme = "system" | "light" | "dark";
 const THEME_KEY = "verbatim-theme";
 
 function useTheme(): [Theme, () => void] {
-  const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem(THEME_KEY) as Theme | null) ?? "system");
+  const [theme, setTheme] = useState<Theme>(() => (readLocal(THEME_KEY) as Theme | null) ?? "system");
   useEffect(() => {
     if (theme === "system") delete document.documentElement.dataset.theme;
     else document.documentElement.dataset.theme = theme;
-    localStorage.setItem(THEME_KEY, theme);
+    writeLocal(THEME_KEY, theme);
   }, [theme]);
   const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   return [theme, () => setTheme(dark ? "light" : "dark")];
@@ -52,6 +54,7 @@ export function App() {
   const route = useRoute();
   const { lang, t } = useLang();
   const [theme, toggleTheme] = useTheme();
+  const unsaved = useUnsaved();
   const dark = theme === "dark" || (theme === "system" && matchMedia("(prefers-color-scheme: dark)").matches);
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -92,6 +95,11 @@ export function App() {
         </div>
       </header>
       <main id="main" tabIndex={-1}>
+        {unsaved ? (
+          <p className="error-text" role="alert">
+            {t("Storage for this site is full: your latest transcripts and edits will be lost on reload. Export what you need.", "Le stockage de ce site est plein : vos dernières transcriptions et modifications seront perdues au rechargement. Exportez ce dont vous avez besoin.")}
+          </p>
+        ) : null}
         {route.page === "home" ? <Home /> : null}
         {route.page === "doc" ? <Editor id={route.id} key={route.id} /> : null}
         {route.page === "history" ? <History /> : null}

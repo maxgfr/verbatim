@@ -113,7 +113,9 @@ export function AiPage() {
             const r = await llm.save();
             setStatus(
               r.ok
-                ? t("Saved.", "Enregistré.")
+                ? r.persisted
+                  ? t("Saved.", "Enregistré.")
+                  : t("Storage for this site is full: your change will be lost on reload.", "Le stockage de ce site est plein : votre modification sera perdue au rechargement.")
                 : r.reason === "insecure-endpoint"
                   ? t("Use https, or http only on this machine (localhost).", "Utilisez https, ou http seulement sur cette machine (localhost).")
                   : t("Some settings are missing or invalid.", "Des réglages manquent ou sont invalides."),

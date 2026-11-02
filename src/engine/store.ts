@@ -45,18 +45,49 @@ export async function loadDocs(): Promise<Doc[]> {
   return docs;
 }
 
+// The origin (maxgfr.github.io) is shared by every project page, and so is its
+// quota: when another site has filled it, a write fails. The document stays in
+// memory and `useUnsaved` says it will not survive a reload.
+const failed = new Set<string>();
+let unsaved = false;
+const track = (id: string, ok: boolean) => {
+  if (ok) failed.delete(id);
+  else failed.add(id);
+  if (unsaved === failed.size > 0) return;
+  unsaved = failed.size > 0;
+  emit();
+};
+
 export async function saveDoc(doc: Doc): Promise<void> {
   const next = { ...doc, updatedAt: Date.now() };
   // Memory first, so an update made before the write lands builds on this one.
   docs = [next, ...docs.filter((d) => d.id !== doc.id)];
   emit();
-  await tx("readwrite", (s) => s.put(next));
+  try {
+    await tx("readwrite", (s) => s.put(next));
+  } catch (e) {
+    track(doc.id, false);
+    throw e;
+  }
+  track(doc.id, true);
+}
+
+/** True while a document of this session could not be stored. */
+export function useUnsaved(): boolean {
+  return useSyncExternalStore(
+    (fn) => {
+      listeners.add(fn);
+      return () => listeners.delete(fn);
+    },
+    () => unsaved,
+  );
 }
 
 export async function deleteDoc(id: string): Promise<void> {
   await tx("readwrite", (s) => s.delete(id));
   docs = docs.filter((d) => d.id !== id);
   media.delete(id);
+  track(id, true);
   emit();
 }
 
@@ -64,6 +95,8 @@ export async function clearDocs(): Promise<void> {
   await tx("readwrite", (s) => s.clear());
   docs = [];
   media.clear();
+  failed.clear();
+  unsaved = false;
   emit();
 }
 

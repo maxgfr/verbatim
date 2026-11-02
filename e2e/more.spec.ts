@@ -111,3 +111,24 @@ test("the app opens offline once visited", async ({ page, context }) => {
   await expect(page.locator(".liner-cost")).toContainText("Parakeet");
   await context.setOffline(false);
 });
+
+test("when another site of the origin has filled the storage, edits and settings say they will not last", async ({ page }) => {
+  // maxgfr.github.io is shared by every project page: their writes count against one quota.
+  await openSeeded(page);
+  await page.evaluate(() => {
+    const full = () => {
+      throw new DOMException("The quota has been exceeded.", "QuotaExceededError");
+    };
+    Storage.prototype.setItem = full;
+    IDBObjectStore.prototype.put = full;
+  });
+  await expect(page.getByRole("alert")).toHaveCount(0);
+  await page.getByRole("button", { name: "Cut segment 2" }).click({ force: true });
+  await expect(page.getByRole("alert")).toContainText("Storage for this site is full");
+  await page.getByRole("link", { name: "AI", exact: true }).click();
+  await page.getByRole("button", { name: "On my machine" }).click();
+  await page.getByRole("button", { name: "Ollama" }).click();
+  await page.getByLabel("Model", { exact: true }).fill("llama3.2");
+  await page.getByRole("button", { name: "Save" }).click();
+  await expect(page.getByRole("status")).toHaveText("Storage for this site is full: your change will be lost on reload.");
+});
