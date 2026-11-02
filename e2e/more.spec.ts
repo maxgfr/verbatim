@@ -112,6 +112,21 @@ test("the app opens offline once visited", async ({ page, context }) => {
   await context.setOffline(false);
 });
 
+test("the service worker never serves what another site of the origin cached", async ({ page }) => {
+  // maxgfr.github.io is shared by every project page: any of them can write a cache named as it likes.
+  await page.goto("./");
+  await page.evaluate(() => navigator.serviceWorker.ready);
+  await page.reload();
+  const answer = await page.evaluate(async () => {
+    const url = new URL("planted.js", location.href).href;
+    await (await caches.open("another-site")).put(url, new Response("planted"));
+    const res = await fetch(url);
+    return { status: res.status, text: await res.text() };
+  });
+  expect(answer.text).not.toBe("planted");
+  expect(answer.status).toBe(404);
+});
+
 test("when another site of the origin has filled the storage, edits and settings say they will not last", async ({ page }) => {
   // maxgfr.github.io is shared by every project page: their writes count against one quota.
   await openSeeded(page);
