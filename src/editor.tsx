@@ -93,7 +93,7 @@ export function Editor({ id }: { id: string }) {
     (fn: (d: Doc) => Doc) => {
       // The store's latest copy, not this render's: several updates may land before the next render.
       const current = getDoc(id);
-      if (current) void saveDoc(fn(current));
+      if (current) void saveDoc(fn(current)).catch(() => {});
     },
     [id],
   );

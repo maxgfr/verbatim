@@ -9,6 +9,7 @@ import { media, saveDoc } from "./engine/store.ts";
 import { clock } from "./engine/time.ts";
 import { bytes, languageLabel, useLang } from "./i18n.ts";
 import { Icon } from "./icons.tsx";
+import { readLocal, writeLocal } from "./storage.ts";
 
 interface Job {
   key: string;
@@ -29,8 +30,8 @@ function browserLanguage(): string {
 }
 
 function usePersisted<T extends string>(key: string, initial: T): [T, (v: T) => void] {
-  const [v, setV] = useState<T>(() => (localStorage.getItem(key) as T | null) ?? initial);
-  return [v, (next) => (localStorage.setItem(key, next), setV(next))];
+  const [v, setV] = useState<T>(() => (readLocal(key) as T | null) ?? initial);
+  return [v, (next) => (writeLocal(key, next), setV(next))];
 }
 
 function engineName(id: EngineId, t: (en: string, fr: string) => string): string {
@@ -121,7 +122,8 @@ export function Home() {
       try {
         const doc = await transcribeFile(job.file, engine, language, (stage) => patch(job.key, { stage }));
         media.set(doc.id, job.file);
-        await saveDoc(doc);
+        // Kept in memory even when the storage is full; the shell then says so.
+        await saveDoc(doc).catch(() => {});
         patch(job.key, { state: "done", docId: doc.id });
         if (queue.length === 1 && !opened) {
           opened = true;
